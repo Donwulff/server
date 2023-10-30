@@ -1483,4 +1483,19 @@ MBRINTERSECTS(b, GEOMFROMTEXT('LINESTRING(1 1,1102219 2)') );
 COUNT(*)
 2
 DROP TABLE t1;
+CREATE TABLE t1 (a GEOMETRY NOT NULL,SPATIAL (a)) transactional=1 row_format=page;
+INSERT INTO t1 VALUES (GEOMFROMTEXT('POINT(1 0)'));
+INSERT INTO t1 VALUES (GEOMFROMTEXT('GeometryCollection EMPTY'));
+UPDATE t1 SET a=NULL;
+ERROR 23000: Column 'a' cannot be null
+UPDATE t1 SET a=GEOMFROMTEXT('');
+ERROR 23000: Column 'a' cannot be null
+UPDATE t1 SET a=GEOMFROMTEXT('NULL');
+ERROR 23000: Column 'a' cannot be null
+UPDATE t1 SET a=GEOMFROMTEXT('NULLNULLNULL');
+ERROR 23000: Column 'a' cannot be null
+UPDATE t1 SET a='';
+ERROR 22003: Cannot get geometry object from data you send to the GEOMETRY field
+UPDATE t1 SET a=GEOMFROMTEXT('GeometryCollection EMPTY');
+DROP TABLE t1;
 End of 5.0 tests.

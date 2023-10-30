@@ -871,6 +871,9 @@ my_bool maria_rtree_insert(MARIA_HA *info, MARIA_KEY *key)
   if (!key)
     DBUG_RETURN(1);                       /* _ma_sp_make_key failed */
 
+  if (!key->keyinfo)
+    DBUG_RETURN(1);                       /* _ma_sp_make_key failed */
+
   root= &share->state.key_root[key->keyinfo->key_nr];
   new_root= *root;
 

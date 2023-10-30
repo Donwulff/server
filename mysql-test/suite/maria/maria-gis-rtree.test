@@ -885,4 +885,27 @@ SELECT COUNT(*) FROM t1 IGNORE INDEX (b) WHERE
 
 DROP TABLE t1;
 
+#
+# Bug #31766: Crash when updating key in rtree to empty string
+#
+
+CREATE TABLE t1 (a GEOMETRY NOT NULL,SPATIAL (a)) transactional=0 row_format=page;
+
+INSERT INTO t1 VALUES (GEOMFROMTEXT('POINT(1 0)'));
+INSERT INTO t1 VALUES (GEOMFROMTEXT('GeometryCollection EMPTY'));
+
+--error 1048
+UPDATE t1 SET a=NULL;
+--error 1048
+UPDATE t1 SET a=GEOMFROMTEXT('');
+--error 1048
+UPDATE t1 SET a=GEOMFROMTEXT('NULL');
+--error 1048
+UPDATE t1 SET a=GEOMFROMTEXT('NULLNULLNULL');
+--error 1416
+UPDATE t1 SET a='';
+UPDATE t1 SET a=GEOMFROMTEXT('GeometryCollection EMPTY');
+
+DROP TABLE t1;
+
 --echo End of 5.0 tests.
