@@ -212,12 +212,10 @@ int spider_param_crd_mode(
   THD *thd,
   int crd_mode
 );
-#ifdef WITH_PARTITION_STORAGE_ENGINE
 int spider_param_crd_sync(
   THD *thd,
   int crd_sync
 );
-#endif
 int spider_param_crd_type(
   THD *thd,
   int crd_type
@@ -240,12 +238,10 @@ int spider_param_sts_mode(
   THD *thd,
   int sts_mode
 );
-#ifdef WITH_PARTITION_STORAGE_ENGINE
 int spider_param_sts_sync(
   THD *thd,
   int sts_sync
 );
-#endif
 #ifndef WITHOUT_SPIDER_BG_SEARCH
 int spider_param_sts_bg_mode(
   THD *thd,
@@ -337,11 +333,6 @@ int spider_param_read_only_mode(
   THD *thd,
   int read_only_mode
 );
-#ifdef HA_CAN_BULK_ACCESS
-int spider_param_bulk_access_free(
-  int bulk_access_free
-);
-#endif
 int spider_param_udf_ds_use_real_table(
   THD *thd,
   int udf_ds_use_real_table

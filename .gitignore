@@ -133,6 +133,7 @@ scripts/mysqld_safe
 scripts/mysqldumpslow
 scripts/mysqlhotcopy
 scripts/mytop
+scripts/print_ddl_recovery_log.pl
 scripts/wsrep_sst_backup
 scripts/wsrep_sst_common
 scripts/wsrep_sst_mysqldump
@@ -287,8 +288,6 @@ storage/mroonga/vendor/groonga/src/grnslap
 storage/mroonga/vendor/groonga/src/groonga
 storage/mroonga/vendor/groonga/src/groonga-benchmark
 storage/mroonga/vendor/groonga/src/suggest/groonga-suggest-create-dataset
-storage/mroonga/mysql-test/mroonga/storage/r/information_schema_plugins.result
-storage/mroonga/mysql-test/mroonga/storage/r/variable_version.result
 zlib/zconf.h
 xxx/*
 yyy/*

@@ -62,8 +62,6 @@ public:
   uint               sql_kinds;
   uint               *sql_kind;
   ulonglong          *connection_ids;
-  uint               conn_kinds;
-  uint               *conn_kind;
   char               *conn_keys_first_ptr;
   char               **conn_keys;
   SPIDER_CONN        **conns;
@@ -81,28 +79,11 @@ public:
   spider_string      *blob_buff;
   SPIDER_POSITION    *pushed_pos;
   SPIDER_POSITION    pushed_pos_buf;
-#ifdef WITH_PARTITION_STORAGE_ENGINE
   SPIDER_PARTITION_HANDLER *partition_handler;
-#endif
   /* Whether this ha_spider is the owner of its wide_handler. */
   bool                wide_handler_owner = FALSE;
   SPIDER_WIDE_HANDLER *wide_handler = NULL;
 
-#ifdef HA_CAN_BULK_ACCESS
-  int                pre_direct_init_result;
-  bool               is_bulk_access_clone;
-  bool               synced_from_clone_source;
-  bool               bulk_access_started;
-  bool               bulk_access_executing;
-  bool               bulk_access_pre_called;
-  SPIDER_BULK_ACCESS_LINK *bulk_access_link_first;
-  SPIDER_BULK_ACCESS_LINK *bulk_access_link_current;
-  SPIDER_BULK_ACCESS_LINK *bulk_access_link_exec_tgt;
-/*
-  bool               init_ha_mem_root;
-  MEM_ROOT           ha_mem_root;
-*/
-#endif
   bool               is_clone;
   ha_spider          *pt_clone_source_handler;
   ha_spider          *pt_clone_last_searcher;
@@ -114,13 +95,11 @@ public:
   bool               da_status;
   bool               use_spatial_index;
 
-#ifdef SPIDER_HAS_GROUP_BY_HANDLER
   uint                  idx_for_direct_join;
   bool                  use_fields;
   spider_fields         *fields;
   SPIDER_LINK_IDX_CHAIN *link_idx_chain;
   SPIDER_LINK_IDX_CHAIN *result_link_idx_chain;
-#endif
 
   /* for mrr */
   bool               mrr_with_cnt;
@@ -147,12 +126,8 @@ public:
   bool               use_pre_action;
   bool               pre_bitmap_checked;
   bool               bulk_insert;
-#ifdef HANDLER_HAS_NEED_INFO_FOR_AUTO_INC
   bool               info_auto_called;
-#endif
-#ifdef HANDLER_HAS_CAN_USE_FOR_AUTO_INC_INIT
   bool               auto_inc_temporary;
-#endif
   int                bulk_size= 0;
   int                direct_dup_insert;
   int                store_error_num;
@@ -175,21 +150,15 @@ public:
     corresponding m_handler_cid is t00003
   */
   char               **m_handler_cid;
-#ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS
   bool               do_direct_update;
   uint               direct_update_kinds;
-#endif
   spider_index_rnd_init prev_index_rnd_init;
-#ifdef HANDLER_HAS_DIRECT_AGGREGATE
   SPIDER_ITEM_HLD    *direct_aggregate_item_first;
   SPIDER_ITEM_HLD    *direct_aggregate_item_current;
-#endif
   ha_rows            table_rows;
-#ifdef HA_HAS_CHECKSUM_EXTENDED
   ha_checksum        checksum_val;
   bool               checksum_null;
   uint               action_flags;
-#endif
 
   /* for fulltext search */
   bool               ft_init_and_first;
@@ -231,12 +200,6 @@ public:
   void check_access_kind(
     THD *thd
   );
-#ifdef HA_CAN_BULK_ACCESS
-  int additional_lock(
-    THD *thd,
-    enum thr_lock_type lock_type
-  );
-#endif
   THR_LOCK_DATA **store_lock(
     THD *thd,
     THR_LOCK_DATA **to,
@@ -258,16 +221,7 @@ public:
     uint idx,
     bool sorted
   ) override;
-#ifdef HA_CAN_BULK_ACCESS
-  int pre_index_init(
-    uint idx,
-    bool sorted
-  );
-#endif
   int index_end() override;
-#ifdef HA_CAN_BULK_ACCESS
-  int pre_index_end();
-#endif
   int index_read_map(
     uchar *buf,
     const uchar *key,
@@ -355,15 +309,7 @@ public:
   int rnd_init(
     bool scan
   ) override;
-#ifdef HA_CAN_BULK_ACCESS
-  int pre_rnd_init(
-    bool scan
-  );
-#endif
   int rnd_end() override;
-#ifdef HA_CAN_BULK_ACCESS
-  int pre_rnd_end();
-#endif
   int rnd_next(
     uchar *buf
   ) override;
@@ -436,10 +382,8 @@ public:
   int check_crd();
   int pre_records() override;
   ha_rows records() override;
-#ifdef HA_HAS_CHECKSUM_EXTENDED
   int pre_calculate_checksum() override;
   int calculate_checksum() override;
-#endif
   const char *table_type() const override;
   ulonglong table_flags() const override;
   ulong table_flags_for_partition();
@@ -457,12 +401,8 @@ public:
   uint max_supported_key_length() const override;
   uint max_supported_key_part_length() const override;
   uint8 table_cache_type() override;
-#ifdef HANDLER_HAS_NEED_INFO_FOR_AUTO_INC
   bool need_info_for_auto_inc() override;
-#endif
-#ifdef HANDLER_HAS_CAN_USE_FOR_AUTO_INC_INIT
   bool can_use_for_auto_inc_init() override;
-#endif
   int update_auto_increment();
   void get_auto_increment(
     ulonglong offset,
@@ -475,37 +415,23 @@ public:
     ulonglong value
   ) override;
   void release_auto_increment() override;
-#ifdef SPIDER_HANDLER_START_BULK_INSERT_HAS_FLAGS
   void start_bulk_insert(
     ha_rows rows,
     uint flags
   ) override;
-#else
-  void start_bulk_insert(
-    ha_rows rows
-  );
-#endif
   int end_bulk_insert() override;
   int write_row(
     const uchar *buf
   ) override;
-#ifdef HA_CAN_BULK_ACCESS
-  int pre_write_row(
-    uchar *buf
-  );
-#endif
-#ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS
   void direct_update_init(
     THD *thd,
     bool hs_request
   );
-#endif
   bool start_bulk_update() override;
   int exec_bulk_update(
     ha_rows *dup_key_found
   ) override;
   int end_bulk_update() override;
-#ifdef SPIDER_UPDATE_ROW_HAS_CONST_NEW_DATA
   int bulk_update_row(
     const uchar *old_data,
     const uchar *new_data,
@@ -515,25 +441,12 @@ public:
     const uchar *old_data,
     const uchar *new_data
   ) override;
-#else
-  int bulk_update_row(
-    const uchar *old_data,
-    uchar *new_data,
-    ha_rows *dup_key_found
-  );
-  int update_row(
-    const uchar *old_data,
-    uchar *new_data
-  );
-#endif
-#ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS
   bool check_direct_update_sql_part(
     st_select_lex *select_lex,
     longlong select_limit,
     longlong offset_limit
   );
 #ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS_WITH_HS
-#ifdef SPIDER_MDEV_16246
   inline int direct_update_rows_init(
     List<Item> *update_fields
   ) {
@@ -548,65 +461,9 @@ public:
     uchar *new_data
   );
 #else
-  inline int direct_update_rows_init()
-  {
-    return direct_update_rows_init(2, NULL, 0, FALSE, NULL);
-  }
-  int direct_update_rows_init(
-    uint mode,
-    KEY_MULTI_RANGE *ranges,
-    uint range_count,
-    bool sorted,
-    uchar *new_data
-  );
-#endif
-#else
-#ifdef SPIDER_MDEV_16246
   int direct_update_rows_init(
     List<Item> *update_fields
   ) override;
-#else
-  int direct_update_rows_init();
-#endif
-#endif
-#ifdef HA_CAN_BULK_ACCESS
-#ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS_WITH_HS
-#ifdef SPIDER_MDEV_16246
-  inline int pre_direct_update_rows_init(
-    List<Item> *update_fields
-  ) {
-    return pre_direct_update_rows_init(update_fields, 2, NULL, 0, FALSE, NULL);
-  }
-  int pre_direct_update_rows_init(
-    List<Item> *update_fields,
-    uint mode,
-    KEY_MULTI_RANGE *ranges,
-    uint range_count,
-    bool sorted,
-    uchar *new_data
-  );
-#else
-  inline int pre_direct_update_rows_init()
-  {
-    return pre_direct_update_rows_init(2, NULL, 0, FALSE, NULL);
-  }
-  int pre_direct_update_rows_init(
-    uint mode,
-    KEY_MULTI_RANGE *ranges,
-    uint range_count,
-    bool sorted,
-    uchar *new_data
-  );
-#endif
-#else
-#ifdef SPIDER_MDEV_16246
-  int pre_direct_update_rows_init(
-    List<Item> *update_fields
-  );
-#else
-  int pre_direct_update_rows_init();
-#endif
-#endif
 #endif
 #ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS_WITH_HS
   inline int direct_update_rows(ha_rows *update_rows, ha_rows *found_rows)
@@ -627,35 +484,11 @@ public:
     ha_rows *found_row
   ) override;
 #endif
-#ifdef HA_CAN_BULK_ACCESS
-#ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS_WITH_HS
-  inline int pre_direct_update_rows()
-  {
-    ha_rows update_rows;
-    ha_rows found_rows;
-
-    return pre_direct_update_rows(NULL, 0, FALSE, NULL, &update_rows,
-      &found_rows);
-  }
-  int pre_direct_update_rows(
-    KEY_MULTI_RANGE *ranges,
-    uint range_count,
-    bool sorted,
-    uchar *new_data,
-    ha_rows *update_rows,
-    ha_rows *found_row
-  );
-#else
-  int pre_direct_update_rows();
-#endif
-#endif
-#endif
   bool start_bulk_delete() override;
   int end_bulk_delete() override;
   int delete_row(
     const uchar *buf
   ) override;
-#ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS
   bool check_direct_delete_sql_part(
     st_select_lex *select_lex,
     longlong select_limit,
@@ -675,22 +508,6 @@ public:
 #else
   int direct_delete_rows_init() override;
 #endif
-#ifdef HA_CAN_BULK_ACCESS
-#ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS_WITH_HS
-  inline int pre_direct_delete_rows_init()
-  {
-    return pre_direct_delete_rows_init(2, NULL, 0, FALSE);
-  }
-  int pre_direct_delete_rows_init(
-    uint mode,
-    KEY_MULTI_RANGE *ranges,
-    uint range_count,
-    bool sorted
-  );
-#else
-  int pre_direct_delete_rows_init();
-#endif
-#endif
 #ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS_WITH_HS
   inline int direct_delete_rows(ha_rows *delete_rows)
   {
@@ -707,25 +524,6 @@ public:
     ha_rows *delete_rows
   ) override;
 #endif
-#ifdef HA_CAN_BULK_ACCESS
-#ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS_WITH_HS
-  inline int pre_direct_delete_rows()
-  {
-    ha_rows delete_rows;
-
-    return pre_direct_delete_rows(NULL, 0, FALSE, &delete_rows);
-  }
-  int pre_direct_delete_rows(
-    KEY_MULTI_RANGE *ranges,
-    uint range_count,
-    bool sorted,
-    ha_rows *delete_rows
-  );
-#else
-  int pre_direct_delete_rows();
-#endif
-#endif
-#endif
   int delete_all_rows() override;
   int truncate() override;
   double scan_time() override;
@@ -734,9 +532,6 @@ public:
     uint ranges,
     ha_rows rows
   ) override;
-#ifdef HA_CAN_BULK_ACCESS
-  void bulk_req_exec();
-#endif
   const key_map *keys_to_use_for_scanning() override;
   ha_rows estimate_rows_upper_bound() override;
   void print_error(
@@ -808,18 +603,14 @@ public:
     uint info_type,
     void *info
   ) override;
-#ifdef HANDLER_HAS_DIRECT_AGGREGATE
   void return_record_by_parent() override;
-#endif
   TABLE *get_table();
   void set_ft_discard_bitmap();
   void set_searched_bitmap();
   void set_clone_searched_bitmap();
   void set_searched_bitmap_from_item_list();
   void set_select_column_mode();
-#ifdef WITH_PARTITION_STORAGE_ENGINE
   void check_select_column(bool rnd);
-#endif
   bool check_and_start_bulk_update(
     spider_bulk_upd_start bulk_upd_start
   );
@@ -835,15 +626,13 @@ public:
   int check_ha_range_eof();
   int drop_tmp_tables();
   bool handler_opened(
-    int link_idx,
-    uint tgt_conn_kind
+    int link_idx
   );
   void set_handler_opened(
     int link_idx
   );
   void clear_handler_opened(
-    int link_idx,
-    uint tgt_conn_kind
+    int link_idx
   );
   int close_opened_handler(
     int link_idx,
@@ -895,18 +684,7 @@ public:
   void check_pre_call(
     bool use_parallel
   );
-#ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS
   void check_insert_dup_update_pushdown();
-#endif
-#ifdef HA_CAN_BULK_ACCESS
-  SPIDER_BULK_ACCESS_LINK *create_bulk_access_link();
-  void delete_bulk_access_link(
-    SPIDER_BULK_ACCESS_LINK *bulk_access_link
-  );
-  int sync_from_clone_source(
-    ha_spider *spider
-  );
-#endif
   void sync_from_clone_source_base(
     ha_spider *spider
   );
@@ -926,10 +704,7 @@ public:
   int append_insert_sql_part();
   int append_update_sql_part();
   int append_update_set_sql_part();
-#ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS
   int append_direct_update_set_sql_part();
-#endif
-#ifdef HANDLER_HAS_DIRECT_UPDATE_ROWS
   int append_dup_update_pushdown_sql_part(
     const char *alias,
     uint alias_length
@@ -939,7 +714,6 @@ public:
     uint alias_length
   );
   int check_update_columns_sql_part();
-#endif
   int append_delete_sql_part();
   int append_select_sql_part(
     ulong sql_type
@@ -1003,13 +777,11 @@ public:
     ulong sql_type,
     bool test_flg
   );
-#ifdef HANDLER_HAS_DIRECT_AGGREGATE
   int append_sum_select_sql_part(
     ulong sql_type,
     const char *alias,
     uint alias_length
   );
-#endif
   int append_match_select_sql_part(
     ulong sql_type,
     const char *alias,
@@ -1021,13 +793,11 @@ public:
   void set_order_to_pos_sql(
     ulong sql_type
   );
-#ifdef HANDLER_HAS_DIRECT_AGGREGATE
   int append_group_by_sql_part(
     const char *alias,
     uint alias_length,
     ulong sql_type
   );
-#endif
   int append_key_order_for_merge_with_alias_sql_part(
     const char *alias,
     uint alias_length,
@@ -1132,15 +902,8 @@ public:
   int append_lock_tables_list();
   int lock_tables();
   int dml_init();
-#ifdef HA_CAN_BULK_ACCESS
-  int bulk_access_begin(
-    void *info
-  );
-  int bulk_access_current(
-    void *info
-  );
-  void bulk_access_end();
-#endif
+private:
+  void init_fields();
 };
 
 

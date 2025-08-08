@@ -91,6 +91,15 @@ String *Item_func_geometry_from_wkb::val_str(String *str)
   {
     String *str_ret= args[0]->val_str(str);
     null_value= args[0]->null_value;
+    if (!null_value && arg_count == 2 && !args[1]->null_value) {
+      srid= (uint32)args[1]->val_int();
+
+      if (str->copy(*str_ret))
+        return 0;
+
+      int4store(str->ptr(), srid);
+      return str;
+    }
     return str_ret;
   }
 
@@ -182,8 +191,8 @@ String *Item_func_geometry_from_json::val_str(String *str)
     if (code)
     {
       THD *thd= current_thd;
-      push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN, code,
-                          ER_THD(thd, code));
+      push_warning(thd, Sql_condition::WARN_LEVEL_WARN, code,
+                   ER_THD(thd, code));
     }
     return 0;
   }
@@ -449,7 +458,7 @@ String *Item_func_boundary::val_str(String *str_value)
   Transporter trn(&res_receiver);
 
   Geometry *g= Geometry::construct(&buffer, swkb->ptr(), swkb->length());
-  if (!g)
+  if ((null_value= !g))
     DBUG_RETURN(0);
 
   if (g->store_shapes(&trn))
@@ -1153,7 +1162,7 @@ LEX_CSTRING Item_func_spatial_mbr_rel::func_name_cstring() const
 }
 
 
-longlong Item_func_spatial_mbr_rel::val_int()
+bool Item_func_spatial_mbr_rel::val_bool()
 {
   DBUG_ASSERT(fixed());
   String *res1= args[0]->val_str(&tmp_value1);
@@ -1361,7 +1370,7 @@ public:
 };
 
 
-longlong Item_func_spatial_relate::val_int()
+bool Item_func_spatial_relate::val_bool()
 {
   DBUG_ENTER("Item_func_spatial_relate::val_int");
   DBUG_ASSERT(fixed());
@@ -1398,7 +1407,7 @@ exit:
 }
 
 
-longlong Item_func_spatial_precise_rel::val_int()
+bool Item_func_spatial_precise_rel::val_bool()
 {
   DBUG_ENTER("Item_func_spatial_precise_rel::val_int");
   DBUG_ASSERT(fixed());
@@ -2061,7 +2070,7 @@ mem_error:
 }
 
 
-longlong Item_func_isempty::val_int()
+bool Item_func_isempty::val_bool()
 {
   DBUG_ASSERT(fixed());
   String tmp;
@@ -2523,7 +2532,7 @@ double Item_func_sphere_distance::val_real()
   String *arg2= args[1]->val_str(&bak2);
   double distance= 0.0;
   double sphere_radius= 6370986.0; // Default radius equals Earth radius
-  
+
   null_value= (args[0]->null_value || args[1]->null_value);
   if (null_value)
   {
@@ -2541,7 +2550,7 @@ double Item_func_sphere_distance::val_real()
     }
     if (sphere_radius <= 0)
     {
-      my_error(ER_INTERNAL_ERROR, MYF(0), "Radius must be greater than zero.");
+      my_error(ER_GIS_UNSUPPORTED_ARGUMENT, MYF(0), func_name());
       return 1;
     }
   }
@@ -2553,26 +2562,27 @@ double Item_func_sphere_distance::val_real()
     my_error(ER_GIS_INVALID_DATA, MYF(0), "ST_Distance_Sphere");
     goto handle_errors;
   }
-// Method allowed for points and multipoints
+  // Method allowed for points and multipoints
   if (!(g1->get_class_info()->m_type_id == Geometry::wkb_point ||
         g1->get_class_info()->m_type_id == Geometry::wkb_multipoint) ||
       !(g2->get_class_info()->m_type_id == Geometry::wkb_point ||
         g2->get_class_info()->m_type_id == Geometry::wkb_multipoint))
   {
-    // Generate error message in case different geometry is used? 
-    my_error(ER_INTERNAL_ERROR, MYF(0), func_name());
+    // Generate error message in case of unexpected geometry.
+    my_error(ER_GIS_UNSUPPORTED_ARGUMENT, MYF(0), func_name());
     return 0;
   }
   distance= spherical_distance_points(g1, g2, sphere_radius);
   if (distance < 0)
   {
-    my_error(ER_INTERNAL_ERROR, MYF(0), "Returned distance cannot be negative.");
+    my_error(ER_INTERNAL_ERROR, MYF(0),
+             "Returned distance cannot be negative.");
     return 1;
   }
   return distance;
 
-  handle_errors:
-    return 0;
+handle_errors:
+  return 0;
 }
 
 
@@ -4007,7 +4017,6 @@ static Native_func_registry func_array_geom[] =
   { { STRING_WITH_LEN("ST_DISTANCE") }, GEOM_BUILDER(Create_func_distance)},
   { { STRING_WITH_LEN("ST_ENDPOINT") }, GEOM_BUILDER(Create_func_endpoint)},
   { { STRING_WITH_LEN("ST_ENVELOPE") }, GEOM_BUILDER(Create_func_envelope)},
-  { { STRING_WITH_LEN("ST_EQUALS") }, GEOM_BUILDER(Create_func_equals)},
   { { STRING_WITH_LEN("ST_EQUALS") }, GEOM_BUILDER(Create_func_equals)},
   { { STRING_WITH_LEN("ST_EXTERIORRING") }, GEOM_BUILDER(Create_func_exteriorring)},
   { { STRING_WITH_LEN("ST_GEOMCOLLFROMTEXT") }, GEOM_BUILDER(Create_func_geometry_from_text)},

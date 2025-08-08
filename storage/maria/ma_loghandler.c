@@ -3605,9 +3605,6 @@ static my_bool translog_is_LSN_chunk(uchar type)
   @retval 1 Error
 */
 
-/* Stack size 26120 from clang */
-PRAGMA_DISABLE_CHECK_STACK_FRAME
-
 my_bool translog_init_with_table(const char *directory,
                                  uint32 log_file_max_size,
                                  uint32 server_version,
@@ -3861,6 +3858,7 @@ my_bool translog_init_with_table(const char *directory,
 
   if (logs_found)
   {
+    TRANSLOG_PAGE_SIZE_BUFF psize_buff;
     TRANSLOG_ADDRESS current_page= sure_page;
     my_bool pageok;
 
@@ -3901,7 +3899,6 @@ my_bool translog_init_with_table(const char *directory,
       do
       {
         TRANSLOG_VALIDATOR_DATA data;
-        TRANSLOG_PAGE_SIZE_BUFF psize_buff;
         uchar *page;
         data.addr= &current_page;
         if ((page= translog_get_page(&data, psize_buff.buffer, NULL)) == NULL)
@@ -3950,7 +3947,6 @@ my_bool translog_init_with_table(const char *directory,
     if (logs_found && !old_log_was_recovered && old_flags == flags)
     {
       TRANSLOG_VALIDATOR_DATA data;
-      TRANSLOG_PAGE_SIZE_BUFF psize_buff;
       uchar *page;
       uint16 chunk_offset;
       data.addr= &last_valid_page;
@@ -4241,7 +4237,6 @@ err:
   ma_message_no_user(0, "log initialization failed");
   DBUG_RETURN(1);
 }
-PRAGMA_REENABLE_CHECK_STACK_FRAME
 
 
 /*
@@ -6392,7 +6387,7 @@ my_bool translog_write_record(LSN *lsn,
   struct st_translog_parts parts;
   LEX_CUSTRING *part;
   int rc;
-  uint short_trid= trn->short_id;
+  SHORT_TRANSACTION_ID short_trid= trn->short_id;
   DBUG_ENTER("translog_write_record");
   DBUG_PRINT("enter", ("type: %u (%s)  ShortTrID: %u  rec_len: %lu",
                        (uint) type, log_record_type_descriptor[type].name,
@@ -8705,7 +8700,7 @@ my_bool translog_purge(TRANSLOG_ADDRESS low)
                     log_descriptor.open_files.elements);
         DBUG_ASSERT(log_descriptor.min_file == i);
         file= *((TRANSLOG_FILE **)pop_dynamic(&log_descriptor.open_files));
-        DBUG_PRINT("info", ("Files : %d", log_descriptor.open_files.elements));
+        DBUG_PRINT("info", ("Files : %zu", log_descriptor.open_files.elements));
         DBUG_ASSERT(i == file->number);
         log_descriptor.min_file++;
         DBUG_ASSERT(log_descriptor.max_file - log_descriptor.min_file + 1 ==

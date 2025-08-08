@@ -17,7 +17,7 @@
 # License along with this library; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1335  USA
 
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 2.8...3.12)
 project(mroonga)
 
 if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -49,6 +49,14 @@ if(MSVC)
       message(FATAL_ERROR ${MRN_OLD_MSVC_MESSAGE})
     endif()
   endif()
+else()
+  STRING(REGEX REPLACE "-Wframe-larger-than=[0-9]*" ""
+         CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+  STRING(REGEX REPLACE "-Wframe-larger-than=[0-9]*" ""
+         CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
+  STRING(REGEX REPLACE "-Wframe-larger-than=[0-9]*" ""
+         CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+  MY_CHECK_AND_SET_COMPILER_FLAG(-Wframe-larger-than=49152)
 endif()
 
 if(MRN_BUNDLED)
@@ -431,14 +439,6 @@ set(MRN_TEST_SUITE_DIR "${CMAKE_SOURCE_DIR}/mysql-test/suite/mroonga")
 if(NOT EXISTS "${MRN_TEST_SUITE_DIR}")
   set(MRN_TEST_SUITE_DIR "${PROJECT_SOURCE_DIR}/mysql-test/mroonga")
 endif()
-configure_file(
-  "${MRN_TEST_SUITE_DIR}/storage/r/information_schema_plugins.result.in"
-  "${MRN_TEST_SUITE_DIR}/storage/r/information_schema_plugins.result"
-  NEWLINE_STYLE LF)
-configure_file(
-  "${MRN_TEST_SUITE_DIR}/storage/r/variable_version.result.in"
-  "${MRN_TEST_SUITE_DIR}/storage/r/variable_version.result"
-  NEWLINE_STYLE LF)
 
 configure_file(
   "${PROJECT_SOURCE_DIR}/data/install.sql.in"

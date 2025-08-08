@@ -857,11 +857,11 @@ static void write_footer(FILE *sql_file)
 } /* write_footer */
 
 
-uchar* get_table_key(const char *entry, size_t *length,
-                     my_bool not_used __attribute__((unused)))
+const uchar *get_table_key(const void *entry, size_t *length,
+                           my_bool not_used __attribute__((unused)))
 {
   *length= strlen(entry);
-  return (uchar*) entry;
+  return entry;
 }
 
 
@@ -1096,11 +1096,11 @@ static int get_options(int *argc, char ***argv)
   load_defaults_or_exit("my", load_default_groups, argc, argv);
   defaults_argv= *argv;
 
-  if (my_hash_init(PSI_NOT_INSTRUMENTED, &ignore_database, charset_info, 16, 0, 0,
-        (my_hash_get_key) get_table_key, my_free, 0))
+  if (my_hash_init(PSI_NOT_INSTRUMENTED, &ignore_database, charset_info, 16, 0,
+                   0, get_table_key, my_free, 0))
     return(EX_EOM);
   if (my_hash_init(PSI_NOT_INSTRUMENTED, &ignore_table, charset_info, 16, 0, 0,
-        (my_hash_get_key) get_table_key, my_free, 0))
+                   get_table_key, my_free, 0))
     return(EX_EOM);
   /* Don't copy internal log tables */
   if (my_hash_insert(&ignore_table, (uchar*) my_strdup(PSI_NOT_INSTRUMENTED,
@@ -1116,7 +1116,7 @@ static int get_options(int *argc, char ***argv)
     return(EX_EOM);
 
   if (my_hash_init(PSI_NOT_INSTRUMENTED, &ignore_data, charset_info, 16, 0, 0,
-                   (my_hash_get_key) get_table_key, my_free, 0))
+                   get_table_key, my_free, 0))
     return(EX_EOM);
 
   if ((ho_error= handle_options(argc, argv, my_long_options, get_one_option)))
@@ -1765,7 +1765,7 @@ static int switch_character_set_results(MYSQL *mysql, const char *cs_name)
   query_length= my_snprintf(query_buffer,
                             sizeof (query_buffer),
                             "SET SESSION character_set_results = '%s'",
-                            (const char *) cs_name);
+                            cs_name);
 
   return mysql_real_query(mysql, query_buffer, (ulong)query_length);
 }
@@ -2124,7 +2124,7 @@ static char *quote_for_equal(const char *name, char *buff)
       *to++='\\';
     }
     if (*name == '\'')
-      *to++= '\\';
+      *to++= '\'';
     *to++= *name++;
   }
   to[0]= '\'';
@@ -3208,7 +3208,7 @@ static uint get_table_structure(const char *table, const char *db, char *table_t
 
           fprintf(sql_file,
                   "SET @saved_cs_client     = @@character_set_client;\n"
-                  "SET character_set_client = utf8;\n"
+                  "SET character_set_client = utf8mb4;\n"
                   "/*!50001 CREATE VIEW %s AS SELECT\n",
                   result_table);
 
@@ -3276,7 +3276,7 @@ static uint get_table_structure(const char *table, const char *db, char *table_t
       {
         fprintf(sql_file,
                 "/*!40101 SET @saved_cs_client     = @@character_set_client */;\n"
-                "/*!40101 SET character_set_client = utf8 */;\n"
+                "/*!40101 SET character_set_client = utf8mb4 */;\n"
                 "%s%s;\n"
                 "/*!40101 SET character_set_client = @saved_cs_client */;\n",
                 is_log_table ? "CREATE TABLE IF NOT EXISTS " : "",
@@ -3638,7 +3638,7 @@ static void dump_trigger_old(FILE *sql_file, MYSQL_RES *show_triggers_rs,
 
   fprintf(sql_file,
           "DELIMITER ;;\n"
-          "/*!50003 SET SESSION SQL_MODE=\"%s\" */;;\n"
+          "/*!50003 SET SESSION SQL_MODE='%s' */;;\n"
           "/*!50003 CREATE */ ",
           (*show_trigger_row)[6]);
 
@@ -4604,17 +4604,19 @@ static int dump_all_users_roles_and_grants()
     return 1;
   while ((row= mysql_fetch_row(tableres)))
   {
+    char buf[200];
     if (opt_replace_into)
       /* Protection against removing the current import user */
       /* MySQL-8.0 export capability */
       fprintf(md_result_file,
         "DELIMITER |\n"
-        "/*M!100101 IF current_user()=\"%s\" THEN\n"
+        "/*M!100101 IF current_user()=%s THEN\n"
         "  SIGNAL SQLSTATE '45000' SET MYSQL_ERRNO=30001,"
         " MESSAGE_TEXT=\"Don't remove current user %s'\";\n"
         "END IF */|\n"
         "DELIMITER ;\n"
-        "/*!50701 DROP USER IF EXISTS %s */;\n", row[0], row[0], row[0]);
+        "/*!50701 DROP USER IF EXISTS %s */;\n",
+        quote_for_equal(row[0],buf), row[0], row[0]);
     if (dump_create_user(row[0]))
       result= 1;
     /* if roles exist, defer dumping grants until after roles created */
@@ -6732,6 +6734,7 @@ static my_bool get_view_structure(char *table, char* db)
   char       *result_table, *opt_quoted_table;
   char       table_buff[NAME_LEN*2+3];
   char       table_buff2[NAME_LEN*2+3];
+  char       temp_buff[NAME_LEN*2 + 3], temp_buff2[NAME_LEN*2 + 3];
   char       query[QUERY_LENGTH];
   FILE       *sql_file= md_result_file;
   DBUG_ENTER("get_view_structure");
@@ -6792,7 +6795,9 @@ static my_bool get_view_structure(char *table, char* db)
               "SELECT CHECK_OPTION, DEFINER, SECURITY_TYPE, "
               "       CHARACTER_SET_CLIENT, COLLATION_CONNECTION "
               "FROM information_schema.views "
-              "WHERE table_name=\"%s\" AND table_schema=\"%s\"", table, db);
+              "WHERE table_name=%s AND table_schema=%s",
+              quote_for_equal(table, temp_buff2),
+              quote_for_equal(db, temp_buff));
 
   if (mysql_query(mysql, query))
   {

@@ -6472,6 +6472,15 @@ int ha_connect::create(const char *name, TABLE *table_arg,
   PGLOBAL g= xp->g;
 
   DBUG_ENTER("ha_connect::create");
+
+  if (table_arg->versioned())
+  {
+    /* Due to microseconds not supported by CONNECT (MDEV-15967) system versioning
+       cannot work as expected (MDEV-15968, MDEV-28288) */
+    my_error(ER_VERS_NOT_SUPPORTED, MYF(0), "CONNECT storage engine");
+    DBUG_RETURN(HA_ERR_UNSUPPORTED);
+  }
+
   /*
     This assignment fixes test failures if some
     "ALTER TABLE t1 ADD KEY(a)" query exits on ER_ACCESS_DENIED_ERROR
@@ -7001,9 +7010,6 @@ PRAGMA_REENABLE_CHECK_STACK_FRAME
   - user has file privilege
 */
 
-/* Stack size 16664 in clang */
-PRAGMA_DISABLE_CHECK_STACK_FRAME
-
 bool ha_connect::FileExists(const char *fn, bool bf)
 {
   if (!fn || !*fn)
@@ -7039,10 +7045,8 @@ bool ha_connect::FileExists(const char *fn, bool bf)
 
     if (n < 0) {
       if (errno != ENOENT) {
-        char buf[_MAX_PATH + 20];
-
-        snprintf(buf, sizeof(buf),  "Error %d for file %s", errno, filename);
-        push_warning(table->in_use, Sql_condition::WARN_LEVEL_WARN, 0, buf);
+        push_warning_printf(table->in_use, Sql_condition::WARN_LEVEL_WARN, 0,
+                            "Error %d for file %s", errno, filename);
         return true;
       } else
         return false;
@@ -7054,7 +7058,6 @@ bool ha_connect::FileExists(const char *fn, bool bf)
 
   return true;
 } // end of FileExists
-PRAGMA_REENABLE_CHECK_STACK_FRAME
 
 // Called by SameString and NoFieldOptionChange
 bool ha_connect::CheckString(PCSZ str1, PCSZ str2)

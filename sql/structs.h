@@ -166,7 +166,7 @@ typedef struct st_key {
   engine_option_value *option_list;
   ha_index_option_struct *option_struct;                  /* structure with parsed options */
 
-  double actual_rec_per_key(uint i);
+  double actual_rec_per_key(uint i) const;
 
   bool without_overlaps;
   /*
@@ -235,7 +235,7 @@ struct AUTHID
   LEX_CSTRING user, host;
   void init() { memset(this, 0, sizeof(*this)); }
   void copy(MEM_ROOT *root, const LEX_CSTRING *usr, const LEX_CSTRING *host);
-  bool is_role() const { return user.str[0] && !host.str[0]; }
+  bool is_role() const { return user.str[0] && (!host.str || !host.str[0]); }
   void set_lex_string(LEX_CSTRING *l, char *buf)
   {
     if (is_role())

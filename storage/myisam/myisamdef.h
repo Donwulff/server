@@ -97,7 +97,8 @@ typedef struct st_mi_state_info
 #define MI_STATE_KEY_SIZE       8U
 #define MI_STATE_KEYBLOCK_SIZE  8U
 #define MI_STATE_KEYSEG_SIZE    4U
-#define MI_STATE_EXTRA_SIZE ((MI_MAX_KEY+MI_MAX_KEY_BLOCK_SIZE)*MI_STATE_KEY_SIZE + MI_MAX_KEY*HA_MAX_KEY_SEG*MI_STATE_KEYSEG_SIZE)
+#define MI_STATE_EXTRA_SIZE(K,P) (((K)+MI_MAX_KEY_BLOCK_SIZE)*MI_STATE_KEY_SIZE + (P)*MI_STATE_KEYSEG_SIZE)
+
 #define MI_KEYDEF_SIZE          (2+ 5*2)
 #define MI_UNIQUEDEF_SIZE       (2+1+1)
 #define HA_KEYSEG_SIZE          (6+ 2*2 + 4*2)
@@ -731,7 +732,7 @@ void mi_update_status(void *param);
 void mi_restore_status(void *param);
 void mi_copy_status(void *to, void *from);
 my_bool mi_check_status(void *param);
-void mi_fix_status(MI_INFO *org_table, MI_INFO *new_table);
+void mi_fix_status(void *org_table, void *new_table);
 extern MI_INFO *test_if_reopen(char *filename);
 my_bool check_table_is_closed(const char *name, const char *where);
 int mi_open_datafile(MI_INFO *info, MYISAM_SHARE *share);

@@ -616,13 +616,13 @@ static int table2maria(TABLE *table_arg, data_file_type row_type,
   while (recpos < (uint) share->stored_rec_length)
   {
     Field **field, *found= 0;
-    minpos= share->reclength;
+    minpos= share->stored_rec_length;
     length= 0;
 
     for (field= table_arg->field; *field; field++)
     {
       if ((fieldpos= (*field)->offset(record)) >= recpos &&
-          fieldpos <= minpos)
+          fieldpos < minpos)
       {
         /* skip null fields */
         if (!(temp_length= (*field)->pack_length_in_rec()))
@@ -2849,6 +2849,7 @@ int ha_maria::delete_table(const char *name)
 void ha_maria::drop_table(const char *name)
 {
   DBUG_ASSERT(!file || file->s->temporary);
+  file->s->deleting= 1;                         // Do not flush data
   (void) ha_close();
   (void) maria_delete_table_files(name, 1, MY_WME);
 }

@@ -658,7 +658,11 @@ public:
   bool fix_session_expr(THD *thd);
   bool cleanup_session_expr();
   bool fix_and_check_expr(THD *thd, TABLE *table);
+  bool check_access(THD *thd);
   inline bool is_equal(const Virtual_column_info* vcol) const;
+  /* Same as is_equal() but for comparing with different table */
+  bool is_equivalent(THD *thd, TABLE_SHARE *share, TABLE_SHARE *vcol_share,
+                            const Virtual_column_info* vcol, bool &error) const;
   inline void print(String*);
 };
 
@@ -1533,7 +1537,14 @@ public:
   {
     ptr=ADD_TO_PTR(ptr,ptr_diff, uchar*);
     if (null_ptr)
+    {
       null_ptr=ADD_TO_PTR(null_ptr,ptr_diff,uchar*);
+      if (table)
+      {
+        DBUG_ASSERT(null_ptr < ptr);
+        DBUG_ASSERT(ptr - null_ptr <= (int)table->s->rec_buff_length);
+      }
+    }
   }
   void get_image(uchar *buff, uint length, CHARSET_INFO *cs) const
   { get_image(buff, length, ptr, cs); }
@@ -4306,6 +4317,7 @@ private:
   { DBUG_ASSERT(0); return 0; }
   using Field_varstring::key_cmp;
   Binlog_type_info binlog_type_info() const override;
+  Field *make_new_field(MEM_ROOT *root, TABLE *new_table, bool keep_type) override;
 };
 
 
@@ -4593,6 +4605,7 @@ public:
     return get_key_image_itRAW(ptr_arg, buff, length);
   }
   void set_key_image(const uchar *buff,uint length) override;
+  Field *make_new_field(MEM_ROOT *, TABLE *new_table, bool keep_type) override;
   Field *new_key_field(MEM_ROOT *root, TABLE *new_table,
                        uchar *new_ptr, uint32 length,
                        uchar *new_null_ptr, uint new_null_bit) override;
@@ -4746,6 +4759,7 @@ private:
     override
   { DBUG_ASSERT(0); return 0; }
   Binlog_type_info binlog_type_info() const override;
+  Field *make_new_field(MEM_ROOT *root, TABLE *new_table, bool keep_type) override;
 };
 
 
@@ -5874,7 +5888,7 @@ uint pack_length_to_packflag(uint type);
 enum_field_types get_blob_type_from_length(ulong length);
 int set_field_to_null(Field *field);
 int set_field_to_null_with_conversions(Field *field, bool no_conversions);
-int convert_null_to_field_value_or_error(Field *field);
+int convert_null_to_field_value_or_error(Field *field, uint err);
 bool check_expression(Virtual_column_info *vcol, const LEX_CSTRING *name,
                       enum_vcol_info_type type, Alter_info *alter_info= NULL);
 

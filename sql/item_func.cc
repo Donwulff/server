@@ -1309,9 +1309,10 @@ longlong Item_func_minus::int_op()
   {
     if (args[1]->unsigned_flag)
     {
-      if ((ulonglong) val0 < (ulonglong) val1)
+      if ((ulonglong) val0 >= (ulonglong) val1)
+        res_unsigned= TRUE;
+      else if ((ulonglong)val1 - (ulonglong)val0 > (ulonglong)LONGLONG_MAX)
         goto err;
-      res_unsigned= TRUE;
     }
     else
     {
@@ -2987,13 +2988,15 @@ String *Item_func_min_max::val_str_native(String *str)
       res=args[i]->val_str(str);
     else
     {
-      String *res2;
-      res2= args[i]->val_str(res == str ? &tmp_value : str);
+      String *res2= args[i]->val_str(&tmp_value);
       if (res2)
       {
         int cmp= sortcmp(res,res2,collation.collation);
         if ((cmp_sign < 0 ? cmp : -cmp) < 0)
-          res=res2;
+        {
+          str->copy(*res2);
+          res= str;
+        }
       }
     }
     if ((null_value= args[i]->null_value))
@@ -3042,6 +3045,27 @@ longlong Item_func_min_max::val_int_native()
       return 0;
   }
   return value;
+}
+
+
+longlong Item_func_min_max::val_uint_native()
+{
+  DBUG_ASSERT(fixed());
+  ulonglong value= 0;
+  for (uint i=0; i < arg_count ; i++)
+  {
+    if (i == 0)
+      value= (ulonglong) args[i]->val_int();
+    else
+    {
+      ulonglong tmp= (ulonglong) args[i]->val_int();
+      if (!args[i]->null_value && (tmp < value ? cmp_sign : -cmp_sign) > 0)
+	value= tmp;
+    }
+    if ((null_value= args[i]->null_value))
+      return 0;
+  }
+  return (longlong) value;
 }
 
 
@@ -4112,13 +4136,12 @@ public:
 
 /** Extract a hash key from User_level_lock. */
 
-uchar *ull_get_key(const uchar *ptr, size_t *length,
-                   my_bool not_used __attribute__((unused)))
+const uchar *ull_get_key(const void *ptr, size_t *length, my_bool)
 {
   User_level_lock *ull = (User_level_lock*) ptr;
   MDL_key *key = ull->lock->get_key();
   *length= key->length();
-  return (uchar*) key->ptr();
+  return key->ptr();
 }
 
 
@@ -7031,7 +7054,7 @@ sp_cursor *Cursor_ref::get_open_cursor_or_error()
 }
 
 
-longlong Item_func_cursor_isopen::val_int()
+bool Item_func_cursor_isopen::val_bool()
 {
   sp_cursor *c= current_thd->spcont->get_cursor(m_cursor_offset);
   DBUG_ASSERT(c != NULL);
@@ -7039,14 +7062,14 @@ longlong Item_func_cursor_isopen::val_int()
 }
 
 
-longlong Item_func_cursor_found::val_int()
+bool Item_func_cursor_found::val_bool()
 {
   sp_cursor *c= get_open_cursor_or_error();
   return !(null_value= (!c || c->fetch_count() == 0)) && c->found();
 }
 
 
-longlong Item_func_cursor_notfound::val_int()
+bool Item_func_cursor_notfound::val_bool()
 {
   sp_cursor *c= get_open_cursor_or_error();
   return !(null_value= (!c || c->fetch_count() == 0)) && !c->found();
@@ -7062,6 +7085,15 @@ longlong Item_func_cursor_rowcount::val_int()
 /*****************************************************************************
   SEQUENCE functions
 *****************************************************************************/
+bool Item_func_nextval::check_access(THD *thd, privilege_t want_access)
+{
+  table_list->sequence= false;
+  bool error= check_single_table_access(thd, want_access, table_list, false);
+  table_list->sequence= true;
+  if (error && table_list->belong_to_view)
+    table_list->replace_view_error_with_generic(thd);
+  return error;
+}
 
 longlong Item_func_nextval::val_int()
 {
@@ -7075,7 +7107,8 @@ longlong Item_func_nextval::val_int()
   String key_buff(buff,sizeof(buff), &my_charset_bin);
   DBUG_ENTER("Item_func_nextval::val_int");
   update_table();
-  DBUG_ASSERT(table && table->s->sequence);
+  DBUG_ASSERT(table);
+  DBUG_ASSERT(table->s->sequence);
   thd= table->in_use;
 
   if (thd->count_cuted_fields == CHECK_FIELD_EXPRESSION)

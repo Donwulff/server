@@ -36,6 +36,7 @@
 #include "sql_i_s.h"
 #include "sql_type.h"               /* vers_kind_t */
 #include "privilege.h"              /* privilege_t */
+#include "my_bit.h"
 
 /*
   Buffer for unix timestamp in microseconds:
@@ -1091,6 +1092,11 @@ struct TABLE_SHARE
     return (tmp_table == SYSTEM_TMP_TABLE) ? 0 : table_map_id;
   }
 
+  bool is_optimizer_tmp_table()
+  {
+    return tmp_table == INTERNAL_TMP_TABLE && !db.length && table_name.length;
+  }
+
   bool visit_subgraph(Wait_for_flush *waiting_ticket,
                       MDL_wait_for_graph_visitor *gvisitor);
 
@@ -1494,7 +1500,6 @@ public:
     Used only in the MODE_NO_AUTO_VALUE_ON_ZERO mode.
   */
   bool auto_increment_field_not_null;
-  bool insert_or_update;             /* Can be used by the handler */
   /*
      NOTE: alias_name_used is only a hint! It works only in need_correct_ident()
      condition. On other cases it is FALSE even if table_name is alias.
@@ -1515,12 +1520,11 @@ public:
 
   REGINFO reginfo;			/* field connections */
   MEM_ROOT mem_root;
-  /**
-     Initialized in Item_func_group_concat::setup for appropriate
-     temporary table if GROUP_CONCAT is used with ORDER BY | DISTINCT
-     and BLOB field count > 0.
-   */
-  Blob_mem_storage *blob_storage;
+  /* this is for temporary tables created inside Item_func_group_concat */
+  union {
+    bool group_concat;                  /* used during create_tmp_table() */
+    Blob_mem_storage *blob_storage;     /* used after create_tmp_table()  */
+  };
   GRANT_INFO grant;
   /*
     The arena which the items for expressions from the table definition
@@ -1681,6 +1685,7 @@ public:
   bool is_filled_at_execution();
 
   bool update_const_key_parts(COND *conds);
+  void update_keypart_vcol_info();
 
   inline void initialize_opt_range_structures();
 
@@ -1711,6 +1716,7 @@ public:
                                       TABLE *tmp_table,
                                       TMP_TABLE_PARAM *tmp_table_param,
                                       bool with_cleanup);
+  bool check_sequence_privileges(THD *thd);
   bool vcol_fix_expr(THD *thd);
   bool vcol_cleanup_expr(THD *thd);
   Field *find_field_by_name(LEX_CSTRING *str) const;
@@ -1867,6 +1873,77 @@ typedef struct st_foreign_key_info
   LEX_CSTRING *referenced_key_name;
   List<LEX_CSTRING> foreign_fields;
   List<LEX_CSTRING> referenced_fields;
+private:
+  unsigned char *fields_nullable= nullptr;
+
+  /**
+    Get the number of fields exist in foreign key relationship
+  */
+  unsigned get_n_fields() const noexcept
+  {
+    unsigned n_fields= foreign_fields.elements;
+    if (n_fields == 0)
+      n_fields= referenced_fields.elements;
+    return n_fields;
+  }
+
+  /**
+    Assign nullable field for referenced and foreign fields
+    based on number of fields. This nullable fields
+    should be allocated by engine for passing the
+    foreign key information
+    @param thd thread to allocate the memory
+    @param num_fields number of fields
+  */
+  void assign_nullable(THD *thd, unsigned num_fields) noexcept
+  {
+    fields_nullable=
+      (unsigned char *)thd_calloc(thd,
+                                  my_bits_in_bytes(2 * num_fields));
+  }
+
+public:
+  /**
+    Set nullable bit for the field in the given field
+    @param referenced set null bit for referenced column
+    @param field field number
+    @param n_fields number of fields
+  */
+  void set_nullable(THD *thd, bool referenced,
+                    unsigned field, unsigned n_fields) noexcept
+  {
+    if (!fields_nullable)
+      assign_nullable(thd, n_fields);
+    DBUG_ASSERT(fields_nullable);
+    DBUG_ASSERT(field < n_fields);
+    size_t bit= size_t{field} + referenced * n_fields;
+#if defined __GNUC__ && !defined __clang__ && __GNUC__ < 6
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Wconversion"
+#endif
+    fields_nullable[bit / 8]|= static_cast<unsigned char>(1 << (bit % 8));
+#if defined __GNUC__ && !defined __clang__ && __GNUC__ < 6
+# pragma GCC diagnostic pop
+#endif
+  }
+
+  /**
+    Check whether the given field_no in foreign key field or
+    referenced key field
+    @param referenced check referenced field nullable value
+    @param field  field number
+    @return true if the field is nullable or false if it is not
+  */
+  bool is_nullable(bool referenced, unsigned field) const noexcept
+  {
+    if (!fields_nullable)
+      return false;
+    unsigned n_field= get_n_fields();
+    DBUG_ASSERT(field < n_field);
+    size_t bit= size_t{field} + referenced * n_field;
+    return fields_nullable[bit / 8] & (1U << (bit % 8));
+  }
+
 } FOREIGN_KEY_INFO;
 
 LEX_CSTRING *fk_option_name(enum_fk_option opt);
@@ -2456,7 +2533,7 @@ struct TABLE_LIST
   List<TABLE_LIST> *view_tables;
   /* most upper view this table belongs to */
   TABLE_LIST	*belong_to_view;
-  /* A derived table this table belongs to */
+  /* A merged derived table this table belongs to */
   TABLE_LIST    *belong_to_derived;
   /*
     The view directly referencing this table
@@ -2707,7 +2784,7 @@ struct TABLE_LIST
   bool check_single_table(TABLE_LIST **table, table_map map,
                           TABLE_LIST *view);
   bool set_insert_values(MEM_ROOT *mem_root);
-  void hide_view_error(THD *thd);
+  void replace_view_error_with_generic(THD *thd);
   TABLE_LIST *find_underlying_table(TABLE *table);
   TABLE_LIST *first_leaf_for_name_resolution();
   TABLE_LIST *last_leaf_for_name_resolution();
@@ -2954,6 +3031,8 @@ private:
   /** See comments for set_table_ref_id() */
   ulonglong m_table_ref_version;
 };
+
+#define ERROR_TABLE  ((TABLE_LIST*) 0x1)
 
 class Item;
 

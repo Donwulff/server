@@ -484,7 +484,9 @@ row_ins_cascade_calc_update_vec(
 			const upd_field_t*	parent_ufield
 				= &parent_update->fields[j];
 
-			if (parent_ufield->field_no == parent_field_no) {
+			if (parent_ufield->field_no == parent_field_no
+			    && !(parent_ufield->new_val.type.prtype
+				 & DATA_VIRTUAL)) {
 
 				ulint			min_size;
 				const dict_col_t*	col;
@@ -723,7 +725,7 @@ row_ins_foreign_trx_print(
 	ut_print_timestamp(dict_foreign_err_file);
 	fputs(" Transaction:\n", dict_foreign_err_file);
 
-	trx_print_low(dict_foreign_err_file, trx, 600,
+	trx_print_low(dict_foreign_err_file, trx,
 		      n_rec_locks, n_trx_locks, heap_size);
 
 	mysql_mutex_assert_owner(&dict_foreign_err_mutex);
@@ -910,10 +912,10 @@ row_ins_foreign_fill_virtual(
 		return DB_OUT_OF_MEMORY;
 	}
 	ut_ad(!node->is_delete
-	      || (foreign->type & DICT_FOREIGN_ON_DELETE_SET_NULL));
-	ut_ad(foreign->type & (DICT_FOREIGN_ON_DELETE_SET_NULL
-			       | DICT_FOREIGN_ON_UPDATE_SET_NULL
-			       | DICT_FOREIGN_ON_UPDATE_CASCADE));
+	      || (foreign->type & foreign->DELETE_SET_NULL));
+	ut_ad(foreign->type & (foreign->DELETE_SET_NULL
+			       | foreign->UPDATE_SET_NULL
+			       | foreign->UPDATE_CASCADE));
 
 	for (uint16_t i = 0; i < n_v_fld; i++) {
 
@@ -1029,8 +1031,8 @@ row_ins_foreign_check_on_constraint(
 	node = static_cast<upd_node_t*>(thr->run_node);
 
 	if (node->is_delete && 0 == (foreign->type
-				     & (DICT_FOREIGN_ON_DELETE_CASCADE
-					| DICT_FOREIGN_ON_DELETE_SET_NULL))) {
+				     & (foreign->DELETE_CASCADE
+					| foreign->DELETE_SET_NULL))) {
 
 		row_ins_foreign_report_err("Trying to delete",
 					   thr, foreign,
@@ -1040,8 +1042,8 @@ row_ins_foreign_check_on_constraint(
 	}
 
 	if (!node->is_delete && 0 == (foreign->type
-				      & (DICT_FOREIGN_ON_UPDATE_CASCADE
-					 | DICT_FOREIGN_ON_UPDATE_SET_NULL))) {
+				      & (foreign->UPDATE_CASCADE
+					 | foreign->UPDATE_SET_NULL))) {
 
 		/* This is an UPDATE */
 
@@ -1064,7 +1066,7 @@ row_ins_foreign_check_on_constraint(
 	cascade->foreign = foreign;
 
 	if (node->is_delete
-	    && (foreign->type & DICT_FOREIGN_ON_DELETE_CASCADE)) {
+	    && (foreign->type & foreign->DELETE_CASCADE)) {
 		cascade->is_delete = PLAIN_DELETE;
 	} else {
 		cascade->is_delete = NO_DELETE;
@@ -1212,8 +1214,8 @@ row_ins_foreign_check_on_constraint(
 	}
 
 	if (node->is_delete
-	    ? (foreign->type & DICT_FOREIGN_ON_DELETE_SET_NULL)
-	    : (foreign->type & DICT_FOREIGN_ON_UPDATE_SET_NULL)) {
+	    ? (foreign->type & foreign->DELETE_SET_NULL)
+	    : (foreign->type & foreign->UPDATE_SET_NULL)) {
 		/* Build the appropriate update vector which sets
 		foreign->n_fields first fields in rec to SQL NULL */
 
@@ -1258,12 +1260,12 @@ row_ins_foreign_check_on_constraint(
 		}
 	} else if (table->fts && cascade->is_delete == PLAIN_DELETE
 		   && foreign->affects_fulltext()) {
-		/* DICT_FOREIGN_ON_DELETE_CASCADE case */
+		/* dict_foreign_t::DELETE_CASCADE case */
 		fts_trx_add_op(trx, table, doc_id, FTS_DELETE, NULL);
 	}
 
 	if (!node->is_delete
-	    && (foreign->type & DICT_FOREIGN_ON_UPDATE_CASCADE)) {
+	    && (foreign->type & foreign->UPDATE_CASCADE)) {
 
 		/* Build the appropriate update vector which sets changing
 		foreign->n_fields first fields in rec to new values */
@@ -1635,7 +1637,7 @@ row_ins_check_foreign_constraint(
 		const rec_t*		rec = btr_pcur_get_rec(&pcur);
 		const buf_block_t*	block = btr_pcur_get_block(&pcur);
 
-		if (page_rec_is_infimum(rec)) {
+		if (page_rec_is_infimum_low(rec - block->page.frame)) {
 
 			continue;
 		}
@@ -1644,7 +1646,7 @@ row_ins_check_foreign_constraint(
 					  check_index->n_core_fields,
 					  ULINT_UNDEFINED, &heap);
 
-		if (page_rec_is_supremum(rec)) {
+		if (page_rec_is_supremum_low(rec - block->page.frame)) {
 
 			if (skip_gap_lock) {
 
@@ -2125,7 +2127,7 @@ row_ins_scan_sec_index_for_duplicate(
 		const buf_block_t*	block	= btr_pcur_get_block(&pcur);
 		const ulint		lock_type = LOCK_ORDINARY;
 
-		if (page_rec_is_infimum(rec)) {
+		if (page_rec_is_infimum_low(rec - block->page.frame)) {
 
 			continue;
 		}
@@ -2161,7 +2163,7 @@ row_ins_scan_sec_index_for_duplicate(
 			goto end_scan;
 		}
 
-		if (page_rec_is_supremum(rec)) {
+		if (page_rec_is_supremum_low(rec - block->page.frame)) {
 
 			continue;
 		}
@@ -2276,7 +2278,8 @@ row_ins_duplicate_error_in_clust_online(
 
 	ut_ad(!cursor->index()->is_instant());
 
-	if (cursor->low_match >= n_uniq && !page_rec_is_infimum(rec)) {
+	if (cursor->low_match >= n_uniq
+	    && !page_rec_is_infimum_low(rec - btr_cur_get_page(cursor))) {
 		*offsets = rec_get_offsets(rec, cursor->index(), *offsets,
 					   cursor->index()->n_fields,
 					   ULINT_UNDEFINED, heap);
@@ -2286,7 +2289,7 @@ row_ins_duplicate_error_in_clust_online(
 		}
 	}
 
-	if (!(rec = page_rec_get_next_const(btr_cur_get_rec(cursor)))) {
+	if (!(rec = page_rec_get_next_const(rec))) {
 		return DB_CORRUPTION;
 	}
 
@@ -2346,7 +2349,7 @@ row_ins_duplicate_error_in_clust(
 
 		rec = btr_cur_get_rec(cursor);
 
-		if (!page_rec_is_infimum(rec)) {
+		if (!page_rec_is_infimum_low(rec - btr_cur_get_page(cursor))) {
 			offsets = rec_get_offsets(rec, cursor->index(),
 						  offsets,
 						  cursor->index()
@@ -2557,12 +2560,44 @@ row_ins_index_entry_big_rec(
 	return(error);
 }
 
-#if defined __aarch64__&&defined __GNUC__&&__GNUC__==4&&!defined __clang__
-/* Avoid GCC 4.8.5 internal compiler error due to srw_mutex::wr_unlock().
-We would only need this for row_ins_clust_index_entry_low(),
-but GCC 4.8.5 does not support pop_options. */
-# pragma GCC optimize ("O0")
-#endif
+/** Parse the integer data from specified data, which could be
+DATA_INT, DATA_FLOAT or DATA_DOUBLE. If the value is less than 0
+and the type is not unsigned then we reset the value to 0
+@param data             data to read
+@param len              length of data
+@param mtype            main type of the column
+@param prtype           precise type of the column
+@return the integer value from the data
+@retval 0  if the value is negative or the type or length invalid */
+static uint64_t row_parse_int(const byte *data, size_t len,
+                              ulint mtype, ulint prtype) noexcept
+{
+  switch (mtype) {
+  case DATA_FLOAT:
+    if (len != sizeof(float))
+      return 0;
+    {
+      float f= mach_float_read(data);
+      return f <= 0.0 ? 0 : uint64_t(f);
+    }
+  case DATA_DOUBLE:
+    if (len != sizeof(double))
+      return 0;
+    {
+      double d= mach_double_read(data);
+      return d <= 0.0 ? 0 : uint64_t(d);
+    }
+  case DATA_INT:
+    if (len == 0 || len > 8)
+      return 0;
+    const ibool unsigned_type{prtype & DATA_UNSIGNED};
+    uint64_t value= mach_read_int_type(data, len, unsigned_type);
+    return !unsigned_type && int64_t(value) < 0 ? 0 : value;
+  }
+
+  ut_ad("invalid type" == 0);
+  return 0;
+}
 
 /***************************************************************//**
 Tries to insert an entry into a clustered index, ignoring foreign key
@@ -2649,8 +2684,7 @@ row_ins_clust_index_entry_low(
 							dfield->data),
 						dfield->len,
 						dfield->type.mtype,
-						dfield->type.prtype
-						& DATA_UNSIGNED);
+						dfield->type.prtype);
 					if (auto_inc
 					    && mode != BTR_MODIFY_TREE) {
 						mode = btr_latch_mode(
@@ -2699,6 +2733,15 @@ err_exit:
 
 	DBUG_EXECUTE_IF("row_ins_row_level", goto skip_bulk_insert;);
 
+#ifdef WITH_WSREP
+	/* Appliers never execute bulk insert statements directly. */
+	if (trx->is_wsrep() &&
+	    !wsrep_thd_is_local_transaction(trx->mysql_thd))
+	{
+		goto skip_bulk_insert;
+	}
+#endif /* WITH_WSREP */
+
 	if (!(flags & BTR_NO_UNDO_LOG_FLAG)
 	    && page_is_empty(block->page.frame)
 	    && !entry->is_metadata() && !trx->duplicates
@@ -2726,15 +2769,11 @@ err_exit:
 			}
 
 #ifdef WITH_WSREP
-			if (trx->is_wsrep())
+			if (trx->is_wsrep() &&
+			    wsrep_append_table_key(trx->mysql_thd, *index->table))
 			{
-				if (!wsrep_thd_is_local_transaction(trx->mysql_thd))
-					goto skip_bulk_insert;
-				if (wsrep_append_table_key(trx->mysql_thd, *index->table))
-				{
-					trx->error_state = DB_ROLLBACK;
-					goto err_exit;
-				}
+				trx->error_state = DB_ROLLBACK;
+				goto err_exit;
 			}
 #endif /* WITH_WSREP */
 
@@ -2759,7 +2798,8 @@ skip_bulk_insert:
 	if (UNIV_UNLIKELY(entry->info_bits != 0)) {
 		const rec_t* rec = btr_pcur_get_rec(&pcur);
 
-		if (rec_get_info_bits(rec, page_rec_is_comp(rec))
+		if (rec_get_info_bits(rec,
+				      page_is_comp(btr_pcur_get_page(&pcur)))
 		    & REC_INFO_MIN_REC_FLAG) {
 			trx->error_info = index;
 			err = DB_DUPLICATE_KEY;
@@ -3015,7 +3055,8 @@ row_ins_sec_index_entry_low(
 
 	if (err != DB_SUCCESS) {
 		if (err == DB_DECRYPTION_FAILED) {
-			btr_decryption_failed(*index);
+			innodb_decryption_failed(thr_get_trx(thr)->mysql_thd,
+						 index->table);
 		}
 		goto func_exit;
 	}
@@ -3204,7 +3245,8 @@ row_ins_clust_index_entry(
 
 #ifdef WITH_WSREP
 	const bool skip_locking
-		= wsrep_thd_skip_locking(thr_get_trx(thr)->mysql_thd);
+		= thr_get_trx(thr)->is_wsrep() &&
+		  wsrep_thd_skip_locking(thr_get_trx(thr)->mysql_thd);
 	ulint	flags = index->table->no_rollback() ? BTR_NO_ROLLBACK
 		: (index->table->is_temporary() || skip_locking)
 		? BTR_NO_LOCKING_FLAG : 0;
@@ -3400,24 +3442,22 @@ row_ins_spatial_index_entry_set_mbr_field(
 
 /** Sets the values of the dtuple fields in entry from the values of appropriate
 columns in row.
-@param[in]	index	index handler
-@param[out]	entry	index entry to make
-@param[in]	row	row
-@return DB_SUCCESS if the set is successful */
+@param[in]	node	row insert node
+@param[in]	thr	query thread
+@retval DB_SUCCESS if the set is successful
+@retval DB_CANT_CREATE_GEOMETRY_OBJECT when spatial index fails to
+create geometry object */
 static
 dberr_t
-row_ins_index_entry_set_vals(
-	const dict_index_t*	index,
-	dtuple_t*		entry,
-	const dtuple_t*		row)
+row_ins_index_entry_set_vals(const ins_node_t* node, que_thr_t* thr)
 {
-	ulint	n_fields;
-	ulint	i;
+	const dict_index_t* index = node->index;
+	dtuple_t* entry = *node->entry;
+	const dtuple_t* row = node->row;
 	ulint	num_v = dtuple_get_n_v_fields(entry);
+	ulint n_fields = dtuple_get_n_fields(entry);
 
-	n_fields = dtuple_get_n_fields(entry);
-
-	for (i = 0; i < n_fields + num_v; i++) {
+	for (ulint i = 0; i < n_fields + num_v; i++) {
 		dict_field_t*	ind_field = NULL;
 		dfield_t*	field;
 		const dfield_t*	row_field;
@@ -3487,6 +3527,7 @@ row_ins_index_entry_set_vals(
 		if ((i == 0) && dict_index_is_spatial(index)) {
 			if (!row_field->data
 			    || row_field->len < GEO_DATA_HEADER_SIZE) {
+				thr_get_trx(thr)->error_info = index;
 				return(DB_CANT_CREATE_GEOMETRY_OBJECT);
 			}
 			row_ins_spatial_index_entry_set_mbr_field(
@@ -3521,8 +3562,7 @@ row_ins_index_entry_step(
 
 	ut_ad(dtuple_check_typed(node->row));
 
-	err = row_ins_index_entry_set_vals(node->index, *node->entry,
-					   node->row);
+	err = row_ins_index_entry_set_vals(node, thr);
 
 	if (err != DB_SUCCESS) {
 		DBUG_RETURN(err);
@@ -3805,4 +3845,66 @@ error_handling:
 	}
 
 	return(thr);
+}
+
+/** Read the AUTOINC column from an index record
+@param index  index of the record
+@param rec    the record
+@return value read from the first column
+@retval 0 if the value would be NULL or negative */
+static uint64_t row_read_autoinc(const dict_index_t &index, const rec_t *rec)
+  noexcept
+{
+  const dict_field_t &field= index.fields[0];
+  ut_ad(!DATA_BIG_COL(field.col));
+  ut_ad(!(rec_get_info_bits(rec, index.table->not_redundant()) &
+          (REC_INFO_MIN_REC_FLAG | REC_INFO_DELETED_FLAG)));
+  mem_heap_t *heap= nullptr;
+  rec_offs offsets_[REC_OFFS_HEADER_SIZE + 2];
+  rec_offs_init(offsets_);
+  rec_offs *offsets= rec_get_offsets(rec, &index, offsets_,
+                                     index.n_core_fields, 1, &heap);
+  ut_ad(!heap);
+
+  size_t len;
+  ut_d(size_t first_offset=) rec_get_nth_field_offs(offsets, 0, &len);
+  ut_ad(!first_offset);
+  return row_parse_int(rec, len, field.col->mtype, field.col->prtype);
+}
+
+/** Get the maximum and non-delete-marked record in an index.
+@param index    index B-tree
+@param mtr      mini-transaction (may be committed and restarted)
+@return maximum record, page s-latched in mtr
+@retval nullptr if there are no records, or if all of them are delete-marked */
+static
+const rec_t *row_search_get_max_rec(dict_index_t *index, mtr_t *mtr) noexcept
+{
+  btr_pcur_t pcur;
+  /* Open at the high/right end (false), and init cursor */
+  if (pcur.open_leaf(false, index, BTR_SEARCH_LEAF, mtr) != DB_SUCCESS)
+    return nullptr;
+
+  do
+  {
+    const page_t *page= btr_pcur_get_page(&pcur);
+    const rec_t *rec= page_find_rec_max_not_deleted(page);
+    if (page_rec_is_user_rec_low(rec - page))
+      return rec;
+    btr_pcur_move_before_first_on_page(&pcur);
+  }
+  while (btr_pcur_move_to_prev(&pcur, mtr));
+
+  return nullptr;
+}
+
+uint64_t row_search_max_autoinc(dict_index_t *index) noexcept
+{
+  uint64_t value= 0;
+  mtr_t mtr;
+  mtr.start();
+  if (const rec_t *rec= row_search_get_max_rec(index, &mtr))
+    value= row_read_autoinc(*index, rec);
+  mtr.commit();
+  return value;
 }

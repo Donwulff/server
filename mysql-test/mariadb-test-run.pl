@@ -248,7 +248,7 @@ my @opt_skip_test_list;
 our $opt_ssl_supported;
 our $opt_ps_protocol;
 my $opt_sp_protocol;
-my $opt_cursor_protocol;
+our $opt_cursor_protocol;
 my $opt_view_protocol;
 my $opt_non_blocking_api;
 
@@ -2169,6 +2169,7 @@ sub environment_setup {
   $ENV{'LC_CTYPE'}=           "C";
   $ENV{'LC_COLLATE'}=         "C";
 
+  $ENV{'GNUTLS_SYSTEM_PRIORITY_FILE'}='/dev/null';
   $ENV{'OPENSSL_CONF'}= $mysqld_variables{'version-ssl-library'} gt 'OpenSSL 1.1.1'
                        ? "$glob_mysql_test_dir/lib/openssl.cnf" : '/dev/null';
 
@@ -4458,14 +4459,13 @@ sub extract_warning_lines ($$) {
     (
      @global_suppressions,
      qr/error .*connecting to master/,
-     qr/InnoDB: Error: in ALTER TABLE `test`.`t[12]`/,
-     qr/InnoDB: Error: table `test`.`t[12]` .*does not exist in the InnoDB internal/,
-     qr/InnoDB: Warning: a long semaphore wait:/,
      qr/InnoDB: Dumping buffer pool.*/,
      qr/InnoDB: Buffer pool.*/,
      qr/InnoDB: Could not free any blocks in the buffer pool!/,
-     qr/InnoDB: Warning: Writer thread is waiting this semaphore:/,
      qr/InnoDB: innodb_open_files .* should not be greater than/,
+     qr/InnoDB: Trying to delete tablespace.*but there are.*pending/,
+     qr/InnoDB: Tablespace 1[0-9]* was not found at .*, and innodb_force_recovery was set/,
+     qr/InnoDB: Long wait \([0-9]+ seconds\) for double-write buffer flush/,
      qr/Slave: Unknown table 't1' .* 1051/,
      qr/Slave SQL:.*(Internal MariaDB error code: [[:digit:]]+|Query:.*)/,
      qr/slave SQL thread aborted/,
@@ -4526,7 +4526,7 @@ sub extract_warning_lines ($$) {
      qr|InnoDB: liburing disabled|,
      qr/InnoDB: Failed to set O_DIRECT on file/,
      qr|setrlimit could not change the size of core files to 'infinity';|,
-     qr|feedback plugin: failed to retrieve the MAC address|,
+     qr|failed to retrieve the MAC address|,
      qr|Plugin 'FEEDBACK' init function returned error|,
      qr|Plugin 'FEEDBACK' registration as a INFORMATION SCHEMA failed|,
      qr|'log-bin-use-v1-row-events' is MySQL .* compatible option|,
@@ -5583,11 +5583,12 @@ sub start_check_testcase ($$$) {
   }
   my $errfile= "$opt_vardir/tmp/$name.err";
 
-  My::Debugger::setup_client_args(\$args, \$exe_mysqltest);
+  my $exe= $exe_mysqltest;
+  My::Debugger::setup_client_args(\$args, \$exe);
   my $proc= My::SafeProcess->new
     (
      name          => $name,
-     path          => $exe_mysqltest,
+     path          => $exe,
      error         => $errfile,
      output        => $errfile,
      args          => \$args,

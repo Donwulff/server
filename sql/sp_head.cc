@@ -102,7 +102,7 @@ void init_sp_psi_keys()
 #define MYSQL_RUN_SP(SP, CODE) do { CODE; } while(0)
 #endif
 
-extern "C" uchar *sp_table_key(const uchar *ptr, size_t *plen, my_bool first);
+extern "C" const uchar *sp_table_key(const void *ptr, size_t *plen, my_bool);
 
 /**
   Helper function which operates on a THD object to set the query start_time to
@@ -997,9 +997,10 @@ sp_head::create_result_field(uint field_max_length, const LEX_CSTRING *field_nam
 }
 
 
-int cmp_rqp_locations(Rewritable_query_parameter * const *a,
-                      Rewritable_query_parameter * const *b)
+int cmp_rqp_locations(const void *a_, const void *b_)
 {
+  auto a= static_cast<const Rewritable_query_parameter *const *>(a_);
+  auto b= static_cast<const Rewritable_query_parameter *const *>(b_);
   return (int)((*a)->pos_in_query - (*b)->pos_in_query);
 }
 
@@ -2113,6 +2114,27 @@ sp_head::execute_function(THD *thd, Item **argp, uint argcount,
     /* Arguments must be fixed in Item_func_sp::fix_fields */
     DBUG_ASSERT(argp[arg_no]->fixed());
 
+    sp_variable *spvar= m_pcont->find_variable(arg_no);
+
+    if (!spvar)
+      continue;
+
+    /*
+      When you get a merge conflict, please move this code
+      into bind_input_param(). This also applies to the similar
+      code in execute_procedure().
+    */
+    if (!spvar->field_def.type_handler()->is_scalar_type() &&
+        dynamic_cast<Item_param*>(argp[arg_no]))
+    {
+      // Item_param cannot store values of non-scalar data types yet
+      my_error(ER_ILLEGAL_PARAMETER_DATA_TYPE_FOR_OPERATION, MYF(0),
+               spvar->field_def.type_handler()->name().ptr(),
+               "EXECUTE ... USING ?");
+      err_status= true;
+      goto err_with_cleanup;
+    }
+
     if ((err_status= (*func_ctx)->set_parameter(thd, arg_no, &(argp[arg_no]))))
       goto err_with_cleanup;
   }
@@ -2358,10 +2380,26 @@ sp_head::execute_procedure(THD *thd, List<Item> *args)
       if (!arg_item)
         break;
 
+      /*
+        When you get a merge conflict, please move this code
+        into bind_input_param(). This also applies to the similar
+        code in execute_function().
+      */
       sp_variable *spvar= m_pcont->find_variable(i);
 
       if (!spvar)
         continue;
+
+      if (!spvar->field_def.type_handler()->is_scalar_type() &&
+          dynamic_cast<Item_param*>(arg_item))
+      {
+        // Item_param cannot store values of non-scalar data types yet
+        my_error(ER_ILLEGAL_PARAMETER_DATA_TYPE_FOR_OPERATION, MYF(0),
+                 spvar->field_def.type_handler()->name().ptr(),
+                 "EXECUTE ... USING ?");
+        err_status= true;
+        break;
+      }
 
       if (spvar->mode != sp_variable::MODE_IN)
       {
@@ -3668,6 +3706,17 @@ int sp_lex_keeper::cursor_reset_lex_and_exec_core(THD *thd, uint *nextp,
   return res;
 }
 
+sp_lex_keeper::~sp_lex_keeper()
+{
+  if (m_lex_resp)
+  {
+    /* Prevent endless recursion. */
+    m_lex->sphead= NULL;
+    delete m_lex->result;
+    lex_end(m_lex);
+    delete m_lex;
+  }
+}
 
 /*
   sp_instr class functions
@@ -4978,11 +5027,11 @@ typedef struct st_sp_table
 } SP_TABLE;
 
 
-uchar *sp_table_key(const uchar *ptr, size_t *plen, my_bool first)
+const uchar *sp_table_key(const void *ptr, size_t *plen, my_bool)
 {
-  SP_TABLE *tab= (SP_TABLE *)ptr;
+  auto tab= static_cast<const SP_TABLE *>(ptr);
   *plen= tab->qname.length;
-  return (uchar *)tab->qname.str;
+  return reinterpret_cast<const uchar *>(tab->qname.str);
 }
 
 
