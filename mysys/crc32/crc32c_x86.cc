@@ -25,7 +25,7 @@
 #else
 # include <cpuid.h>
 # ifdef __APPLE__ /* AVX512 states are not enabled in XCR0 */
-# elif __GNUC__ >= 15
+# elif __GNUC__ >= 16
 #  define TARGET "pclmul,avx10.1,vpclmulqdq"
 #  define USE_VPCLMULQDQ __attribute__((target(TARGET)))
 # elif __GNUC__ >= 14 || (defined __clang_major__ && __clang_major__ >= 18)

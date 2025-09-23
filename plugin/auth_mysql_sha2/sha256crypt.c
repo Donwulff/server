@@ -29,7 +29,7 @@ void sha256_crypt_r(const unsigned char *key, size_t key_len,
   unsigned char tmp[SHA256_DIGEST_LENGTH];
   unsigned char alt[SHA256_DIGEST_LENGTH];
   size_t cnt;
-  static const char b64t[64] =
+  static const char b64t[] =
   "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
   void *ctx = alloca(my_sha256_context_size());
   unsigned char *p_bytes = alloca(key_len);
