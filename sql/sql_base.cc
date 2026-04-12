@@ -957,6 +957,8 @@ int close_thread_tables(THD *thd)
 
     if (thd->locked_tables_mode == LTM_LOCK_TABLES)
     {
+      if (thd->lock)
+        (void)thd->binlog_flush_pending_rows_event(TRUE);
       error= 0;
       goto end;
     }
@@ -5156,12 +5158,6 @@ static bool check_lock_and_start_stmt(THD *thd,
   DBUG_ENTER("check_lock_and_start_stmt");
 
   /*
-    Prelocking placeholder is not set for TABLE_LIST that
-    are directly used by TOP level statement.
-  */
-  DBUG_ASSERT(table_list->prelocking_placeholder == TABLE_LIST::PRELOCK_NONE);
-
-  /*
     TL_WRITE_DEFAULT and TL_READ_DEFAULT are supposed to be parser only
     types of locks so they should be converted to appropriate other types
     to be passed to storage engine. The exact lock type passed to the
@@ -7907,12 +7903,23 @@ bool setup_fields(THD *thd, Ref_ptr_array ref_pointer_array,
 
 int setup_returning_fields(THD* thd, TABLE_LIST* table_list)
 {
+  GRANT_INFO *saved_grant;
+  int res= 0;
+
   if (!thd->lex->has_returning())
     return 0;
-  return setup_wild(thd, table_list, thd->lex->returning()->item_list, NULL,
-                    thd->lex->returning(), true)
-      || setup_fields(thd, Ref_ptr_array(), thd->lex->returning()->item_list,
-                      MARK_COLUMNS_READ, NULL, NULL, 0, THD_WHERE::RETURNING);
+
+  saved_grant= &table_list->table->grant;
+  table_list->table->grant.want_privilege|= SELECT_ACL;
+
+  res= setup_wild(thd, table_list, thd->lex->returning()->item_list, NULL,
+                     thd->lex->returning(), true)
+       || setup_fields(thd, Ref_ptr_array(), thd->lex->returning()->item_list,
+                       MARK_COLUMNS_READ, NULL, NULL, 0, THD_WHERE::RETURNING);
+
+  table_list->table->grant= *saved_grant;
+
+  return res;
 }
 
 

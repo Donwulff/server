@@ -6918,12 +6918,12 @@ wsrep_store_key_val_for_row(
 						 wsrep_thd_query(thd));
 					true_len = buff_space;
 				}
+				memcpy(buff, sorted, true_len);
 				buff       += true_len;
 				buff_space -= true_len;
 			} else {
 				buff += key_len;
 			}
-			memcpy(buff, sorted, true_len);
 		} else {
 			/* Here we handle all other data types except the
 			true VARCHAR, BLOB and TEXT. Note that the column
@@ -15532,7 +15532,7 @@ get_foreign_key_info(
 	FOREIGN_KEY_INFO*	pf_key_info;
 	uint			i = 0;
 	size_t			len;
-	char			tmp_buff[NAME_LEN+1];
+	char			tmp_buff[MAX_DATABASE_NAME_LEN+1];
 	char			name_buff[NAME_LEN+1];
 	const char*		ptr;
 	LEX_CSTRING*		name = NULL;
@@ -19296,7 +19296,7 @@ static MYSQL_SYSVAR_SIZE_T(ft_result_cache_limit, fts_result_cache_limit,
 static MYSQL_SYSVAR_ULONG(ft_min_token_size, fts_min_token_size,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
   "InnoDB Fulltext search minimum token size in characters",
-  NULL, NULL, 3, 0, 16, 0);
+  NULL, NULL, 3, 1, 16, 0);
 
 static MYSQL_SYSVAR_ULONG(ft_max_token_size, fts_max_token_size,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
@@ -19623,11 +19623,6 @@ static MYSQL_SYSVAR_ENUM(default_row_format, innodb_default_row_format,
   &innodb_default_row_format_typelib);
 
 #ifdef UNIV_DEBUG
-static MYSQL_SYSVAR_UINT(trx_rseg_n_slots_debug, trx_rseg_n_slots_debug,
-  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_NOCMDOPT,
-  "Debug flags for InnoDB to limit TRX_RSEG_N_SLOTS for trx_rsegf_undo_find_free()",
-  NULL, NULL, 0, 0, 1024, 0);
-
 static MYSQL_SYSVAR_UINT(limit_optimistic_insert_debug,
   btr_cur_limit_optimistic_insert_debug, PLUGIN_VAR_RQCMDARG,
   "Artificially limit the number of records per B-tree page (0=unlimited).",
@@ -19900,7 +19895,6 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(compression_pad_pct_max),
   MYSQL_SYSVAR(default_row_format),
 #ifdef UNIV_DEBUG
-  MYSQL_SYSVAR(trx_rseg_n_slots_debug),
   MYSQL_SYSVAR(limit_optimistic_insert_debug),
   MYSQL_SYSVAR(trx_purge_view_update_only_debug),
   MYSQL_SYSVAR(evict_tables_on_commit_debug),

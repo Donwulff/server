@@ -371,7 +371,7 @@ insert into t1 values ('85984',GeomFromText('MULTIPOLYGON(((-115.006363
 
 # Expected results are 115.2970604672862 and 36.23335610879993, but IA64 returns
 # slightly different values due to fused multiply-add instructions.
---replace_result 115.29706047613604 115.2970604672862 36.23335611157958 36.23335610879993
+--replace_regex /115.2970604[67]\d+/115.2970604672862/ /36.233356111579\d+/36.23335610879993/
 select object_id, geometrytype(geo), ISSIMPLE(GEO), ASTEXT(centroid(geo)) from
 t1 where object_id=85998;
 
@@ -3515,3 +3515,10 @@ FROM (
 SELECT ST_DISTANCE_SPHERE(st_geomfromtext('linestring( 2 2, 2 8) '), ST_GeomFromText('POINT(18.413076 43.856258)')) ;
 
 --echo # End of 10.5 tests
+
+--echo #
+--echo # MDEV-35766 ST_PointOnSurface returns NULL with Polygon in some case.
+--echo #
+SELECT ST_ASTEXT(ST_POINTONSURFACE(ST_GeomFromText('POLYGON((-1 0, 1 2, 1 0, -1 0))'))) as T;
+
+--echo # End of 10.6 tests

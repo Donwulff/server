@@ -138,10 +138,10 @@ static my_bool  verbose= 0, opt_no_create_info= 0, opt_no_data= 0, opt_no_data_m
 #define OPT_SYSTEM_STATS 32
 #define OPT_SYSTEM_TIMEZONES 64
 static const char *opt_system_type_values[]=
-  {"all", "users", "plugins",  "udfs", "servers", "stats", "timezones"};
+  {"all", "users", "plugins",  "udfs", "servers", "stats", "timezones", NullS};
 static TYPELIB opt_system_types=
 {
-  array_elements(opt_system_type_values), "system dump options",
+  array_elements(opt_system_type_values) - 1, "system dump options",
   opt_system_type_values, NULL
 };
 static ulonglong opt_system= 0ULL;
@@ -2665,7 +2665,7 @@ static uint dump_events_for_db(char *db)
                                           C_STRING_WITH_LEN(" EVENT"));
 
           fprintf(sql_file,
-                  "/*!50106 %s */ %s\n",
+                  "/*!50106 %s \n*/ %s\n",
                   (const char *) (query_str != NULL ? query_str : row[3]),
                   (const char *) delimiter);
 
@@ -2891,7 +2891,8 @@ static uint dump_routines_for_db(char *db)
 
             fprintf(sql_file,
                     "DELIMITER ;;\n"
-                    "%s ;;\n"
+                    "%s\n"
+                    ";;\n"
                     "DELIMITER ;\n",
                     (const char *) row[2]);
 
@@ -3241,13 +3242,13 @@ static uint get_table_structure(const char *table, const char *db, char *table_t
             The actual column value doesn't matter anyway, since the view will
             be dropped at run time.
           */
-          fprintf(sql_file, " 1 AS %s",
+          fprintf(sql_file, " NULL AS %s",
                   quote_name(row[0], name_buff, 0));
 
           while((row= mysql_fetch_row(result)))
           {
             /* col name, col type */
-            fprintf(sql_file, ",\n  1 AS %s",
+            fprintf(sql_file, ",\n NULL AS %s",
                     quote_name(row[0], name_buff, 0));
           }
 
@@ -3743,7 +3744,7 @@ static int dump_trigger(FILE *sql_file, MYSQL_RES *show_create_trigger_rs,
                                     C_STRING_WITH_LEN(" TRIGGER"));
     fprintf(sql_file,
             "DELIMITER ;;\n"
-            "/*!50003 %s */;;\n"
+            "/*!50003 %s \n*/;;\n"
             "DELIMITER ;\n",
             (const char *) (query_str != NULL ? query_str : row[2]));
 

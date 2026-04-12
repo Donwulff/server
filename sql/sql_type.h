@@ -866,7 +866,7 @@ class Year
 protected:
   uint m_year;
   bool m_truncated;
-  uint year_precision(const Item *item) const;
+  static uint year_precision(const Item *item);
 public:
   Year(): m_year(0), m_truncated(false) { }
   Year(longlong value, bool unsigned_flag, uint length);
@@ -6998,6 +6998,8 @@ public:
                                    const Bit_addr &bit,
                                    const Column_definition_attributes *attr,
                                    uint32 flags) const override;
+  void Item_param_set_param_func(Item_param *param,
+                                 uchar **pos, ulong len) const override;
 };
 
 

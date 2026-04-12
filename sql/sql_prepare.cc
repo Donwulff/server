@@ -5284,7 +5284,6 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
                              (char *) thd->security_ctx->host_or_ip, 1);
       error= mysql_execute_command(thd, true);
       MYSQL_QUERY_EXEC_DONE(error);
-      thd->update_server_status();
     }
     else
     {
@@ -5293,6 +5292,7 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
       thd->update_stats();
       qc_executed= TRUE;
     }
+    thd->update_server_status();
   }
 
   /*
@@ -5315,6 +5315,11 @@ bool Prepared_statement::execute(String *expanded_query, bool open_cursor)
       See the next comment block for more details.
     */
     cleanup_stmt(false);
+
+  mysql_audit_general(thd, MYSQL_AUDIT_GENERAL_STATUS,
+                      thd->get_stmt_da()->is_error() ?
+                      thd->get_stmt_da()->sql_errno() : 0,
+                      command_name[thd->get_command()].str);
 
   /*
     Log the statement to slow query log if it passes filtering.

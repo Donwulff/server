@@ -5969,7 +5969,11 @@ int Rows_log_event::do_apply_event(rpl_group_info *rgi)
       slave_rows_error_report(ERROR_LEVEL, thd->is_error() ? 0 : error,
                               rgi, thd, table, get_type_str(),
                               RPL_LOG_NAME, log_pos);
-    if (thd->slave_thread)
+    if (thd->slave_thread
+#ifdef WITH_WSREP
+        || (WSREP(thd) && wsrep_thd_is_applying(thd))
+#endif /* WITH_WSREP */
+    )
       free_root(thd->mem_root, MYF(MY_KEEP_PREALLOC));
   }
 
@@ -8174,17 +8178,17 @@ int Rows_log_event::find_row(rpl_group_info *rgi)
       found.  I can see no scenario where it would be incorrect to
       chose the row to change only using a PK or an UNNI.
     */
-    if (table->key_info->flags & HA_NOSAME)
+    if (m_key_info->flags & HA_NOSAME)
     {
       /* Unique does not have non nullable part */
-      if (!(table->key_info->flags & (HA_NULL_PART_KEY)))
+      if (!(m_key_info->flags & (HA_NULL_PART_KEY)))
       {
         error= 0;
         goto end;
       }
       else
       {
-        KEY *keyinfo= table->key_info;
+        KEY *keyinfo= m_key_info;
         /*
           Unique has nullable part. We need to check if there is any
           field in the BI image that is null and part of UNNI.
@@ -8543,9 +8547,11 @@ Update_rows_log_event::do_exec_row(rpl_group_info *rgi)
 #endif /* WSREP_PROC_INFO */
 
   thd_proc_info(thd, message);
-  // Temporary fix to find out why it fails [/Matz]
-  memcpy(m_table->read_set->bitmap, m_cols.bitmap, (m_table->read_set->n_bits + 7) / 8);
-  memcpy(m_table->write_set->bitmap, m_cols_ai.bitmap, (m_table->write_set->n_bits + 7) / 8);
+  /* Must read also after-image columns to be able to update them. */
+  bitmap_copy(m_table->read_set, &m_cols);
+  bitmap_union(m_table->read_set, &m_cols_ai);
+  /* Must update after-image columns. */
+  bitmap_copy(m_table->write_set, &m_cols_ai);
 
   m_table->mark_columns_per_binlog_row_image();
 
