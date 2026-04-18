@@ -136,6 +136,9 @@ rtree_get_linestring_mbr(
 {
 	uint	n_points;
 
+	if (*wkb + 4 > end) {
+		return(-1);
+	}
 	n_points = uint4korr(*wkb);
 	(*wkb) += 4;
 
@@ -166,10 +169,16 @@ rtree_get_polygon_mbr(
 	uint	n_linear_rings;
 	uint	n_points;
 
+	if (*wkb + 4 > end) {
+		return(-1);
+	}
 	n_linear_rings = uint4korr((*wkb));
 	(*wkb) += 4;
 
 	for (; n_linear_rings > 0; --n_linear_rings) {
+		if (*wkb + 4 > end) {
+			return(-1);
+		}
 		n_points = uint4korr((*wkb));
 		(*wkb) += 4;
 
@@ -204,6 +213,10 @@ rtree_get_geometry_mbr(
 	uint	wkb_type = 0;
 	uint	n_items;
 
+	/* WKB header: 1 byte order + 4 type */
+	if (*wkb + WKB_HEADER_SIZE > end) {
+		return(-1);
+	}
 	/* byte_order = *(*wkb); */
 	++(*wkb);
 
@@ -221,9 +234,15 @@ rtree_get_geometry_mbr(
 		res = rtree_get_polygon_mbr(wkb, end, n_dims, mbr);
 		break;
 	case wkbMultiPoint:
+		if (*wkb + 4 > end) {
+			return(-1);
+		}
 		n_items = uint4korr((*wkb));
 		(*wkb) += 4;
 		for (; n_items > 0; --n_items) {
+			if (*wkb + WKB_HEADER_SIZE > end) {
+				return(-1);
+			}
 			/* byte_order = *(*wkb); */
 			++(*wkb);
 			(*wkb) += 4;
@@ -234,9 +253,15 @@ rtree_get_geometry_mbr(
 		res = 0;
 		break;
 	case wkbMultiLineString:
+		if (*wkb + 4 > end) {
+			return(-1);
+		}
 		n_items = uint4korr((*wkb));
 		(*wkb) += 4;
 		for (; n_items > 0; --n_items) {
+			if (*wkb + WKB_HEADER_SIZE > end) {
+				return(-1);
+			}
 			/* byte_order = *(*wkb); */
 			++(*wkb);
 			(*wkb) += 4;
@@ -247,9 +272,15 @@ rtree_get_geometry_mbr(
 		res = 0;
 		break;
 	case wkbMultiPolygon:
+		if (*wkb + 4 > end) {
+			return(-1);
+		}
 		n_items = uint4korr((*wkb));
 		(*wkb) += 4;
 		for (; n_items > 0; --n_items) {
+			if (*wkb + WKB_HEADER_SIZE > end) {
+				return(-1);
+			}
 			/* byte_order = *(*wkb); */
 			++(*wkb);
 			(*wkb) += 4;
@@ -264,6 +295,9 @@ rtree_get_geometry_mbr(
 			return(-1);
 		}
 
+		if (*wkb + 4 > end) {
+			return(-1);
+		}
 		n_items = uint4korr((*wkb));
 		(*wkb) += 4;
 		for (; n_items > 0; --n_items) {
