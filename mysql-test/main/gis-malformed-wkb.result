@@ -1,0 +1,12 @@
+SELECT ST_AsText(ST_InteriorRingN(UNHEX('$polygon_target_bad_internal'), 1));
+ST_AsText(ST_InteriorRingN(UNHEX('$polygon_target_bad_internal'), 1))
+NULL
+SELECT ST_InteriorRingN(UNHEX('$polygon_target_bad_internal'), 1) IS NULL;
+ST_InteriorRingN(UNHEX('$polygon_target_bad_internal'), 1) IS NULL
+1
+SELECT ST_AsText(ST_InteriorRingN(UNHEX('$polygon_skip_bad_internal'), 1));
+ST_AsText(ST_InteriorRingN(UNHEX('$polygon_skip_bad_internal'), 1))
+NULL
+SELECT ST_InteriorRingN(UNHEX('$polygon_skip_bad_internal'), 1) IS NULL;
+ST_InteriorRingN(UNHEX('$polygon_skip_bad_internal'), 1) IS NULL
+1

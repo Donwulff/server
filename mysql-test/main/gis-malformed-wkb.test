@@ -1,0 +1,25 @@
+--source include/have_geometry.inc
+
+let $outer=
+00000000000000000000000000000000
+00000000000000000000000000002440
+00000000000024400000000000002440
+00000000000024400000000000000000
+00000000000000000000000000000000;
+
+let $inner_short=
+000000000000F03F000000000000F03F
+000000000000F03F0000000000000840
+00000000000008400000000000000840
+0000000000000840000000000000F03F;
+
+let $polygon_target_bad_wkb=01030000000200000005000000$outer05000000$inner_short;
+let $polygon_target_bad_internal=00000000$polygon_target_bad_wkb;
+let $polygon_skip_bad_wkb=01030000000200000005000000$inner_short;
+let $polygon_skip_bad_internal=00000000$polygon_skip_bad_wkb;
+
+SELECT ST_AsText(ST_InteriorRingN(UNHEX('$polygon_target_bad_internal'), 1));
+SELECT ST_InteriorRingN(UNHEX('$polygon_target_bad_internal'), 1) IS NULL;
+
+SELECT ST_AsText(ST_InteriorRingN(UNHEX('$polygon_skip_bad_internal'), 1));
+SELECT ST_InteriorRingN(UNHEX('$polygon_skip_bad_internal'), 1) IS NULL;
