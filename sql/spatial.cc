@@ -2555,16 +2555,19 @@ int Gis_polygon::interior_ring_n(uint32 num, String *result) const
 
   while (num--)
   {
-    if (no_data(data, 4))
+    if (no_data(data, 4) ||
+        not_enough_points(data + 4, n_points= uint4korr(data)))
       return 1;
-    data+= 4 + uint4korr(data) * POINT_DATA_SIZE;
+    data+= 4 + n_points * POINT_DATA_SIZE;
   }
   if (no_data(data, 4))
     return 1;
   n_points= uint4korr(data);
-  points_size= n_points * POINT_DATA_SIZE;
   data+= 4;
-  if (not_enough_points(data, n_points) || result->reserve(1+4+4+ points_size))
+  if (not_enough_points(data, n_points))
+    return 1;
+  points_size= n_points * POINT_DATA_SIZE;
+  if (result->reserve(1 + 4 + 4 + points_size))
     return 1;
 
   result->q_append((char) wkb_ndr);
