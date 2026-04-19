@@ -35,6 +35,7 @@ Created Jan 06, 2010 Vasil Dimov
 #include "btr0sea.h"
 #include "que0que.h"
 #include "scope.h"
+#include "srv0srv.h"
 #include "debug_sync.h"
 #ifdef WITH_WSREP
 # include <mysql/service_wsrep.h>
@@ -583,6 +584,23 @@ static void dict_stats_empty_index(dict_index_t *index)
 	index->stat_n_leaf_pages = 1;
 }
 
+/** Compute the reanalysis countdown threshold for a table whose current
+n_rows is known. Caller must hold table->stats_mutex_lock().
+@param table          table being initialized
+@param is_persistent  true for persistent stats, false for transient
+@return positive threshold to load into stat_reanalysis_counter */
+static int64_t dict_stats_reanalysis_threshold(const dict_table_t *table,
+                                               bool is_persistent) noexcept
+{
+  const ulonglong n_rows= dict_table_get_n_rows(table);
+  if (is_persistent)
+    return static_cast<int64_t>(std::max<ulonglong>(1, n_rows / 10));
+  ulonglong threshold= 16 + n_rows / 16; /* 6.25% */
+  if (srv_stats_modified_counter)
+    threshold= std::min<ulonglong>(srv_stats_modified_counter, threshold);
+  return static_cast<int64_t>(threshold);
+}
+
 /** Write all zeros (or 1 where it makes sense) into a table and its indexes'
 statistics members. The resulting stats correspond to an empty table.
 @param table  table statistics to be emptied */
@@ -599,6 +617,8 @@ void dict_stats_empty_table(dict_table_t *table)
 	table->stat_sum_of_other_index_sizes
 		= uint32_t(UT_LIST_GET_LEN(table->indexes) - 1);
 	table->stat_modified_counter = 0;
+	/* Empty table: next DML should trigger recalc immediately. */
+	table->stat_reanalysis_counter.store(0);
 
 	dict_index_t*	index;
 
@@ -673,6 +693,9 @@ dict_stats_assert_initialized(
 
 	MEM_CHECK_DEFINED(&table->stat_modified_counter,
 			  sizeof table->stat_modified_counter);
+
+	MEM_CHECK_DEFINED(&table->stat_reanalysis_counter,
+			  sizeof table->stat_reanalysis_counter);
 
 	for (dict_index_t* index = dict_table_get_first_index(table);
 	     index != NULL;
@@ -1245,7 +1268,9 @@ dberr_t dict_stats_update_transient(trx_t *trx, dict_table_t *table) noexcept
 
 	table->stats_last_recalc = time(NULL);
 
-	table->stat_modified_counter = 0;
+	/* Re-arm the reanalysis countdown for the transient path. */
+	table->stat_reanalysis_counter.store(
+		dict_stats_reanalysis_threshold(table, false));
 
 	table->stat = table->stat | dict_table_t::STATS_INITIALIZED;
 
@@ -2692,7 +2717,12 @@ dberr_t dict_stats_update_persistent(trx_t *trx, dict_table_t *table) noexcept
 
 	table->stats_last_recalc = time(NULL);
 
-	table->stat_modified_counter = 0;
+	/* Re-arm the reanalysis countdown with the freshly-computed n_rows.
+	This is the authoritative reset; the tentative re-arm in
+	dict_stats_update_if_needed() only kept the hot path off this
+	function until the background thread got here. */
+	table->stat_reanalysis_counter.store(
+		dict_stats_reanalysis_threshold(table, true));
 
 	table->stat = table->stat | dict_table_t::STATS_INITIALIZED;
 

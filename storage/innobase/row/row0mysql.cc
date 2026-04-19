@@ -1731,8 +1731,11 @@ row_update_for_mysql(row_prebuilt_t* prebuilt)
 	if (update_statistics) {
 		dict_stats_update_if_needed(prebuilt->table, *trx);
 	} else {
-		/* Always update the table modification counter. */
-		prebuilt->table->stat_modified_counter++;
+		/* Ordering-preserving DML (UPD_NODE_NO_ORD_CHANGE or delete
+		with srv_stats_include_delete_marked): index distribution is
+		unchanged, so no reanalysis countdown decrement. Still bump
+		the cumulative modified counter for INNODB_SYS_TABLESTATS. */
+		prebuilt->table->stat_modified_counter.fetch_add(1);
 	}
 
 error:
@@ -2027,9 +2030,11 @@ row_update_cascade_for_mysql(
 			if (stats) {
 				dict_stats_update_if_needed(node->table, *trx);
 			} else {
-				/* Always update the table
-				modification counter. */
-				node->table->stat_modified_counter++;
+				/* Ordering-preserving DML: cumulative
+				observability counter only; see the
+				parallel path above. */
+				node->table->stat_modified_counter
+					.fetch_add(1);
 			}
 
 			return(DB_SUCCESS);

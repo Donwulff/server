@@ -1370,12 +1370,18 @@ rollback_clust:
 			executing ROLLBACK in the InnoDB SQL
 			interpreter, because in that case we would
 			already be holding dict_sys.latch, which
-			would be acquired when updating statistics. */
+			would be acquired when updating statistics.
+
+			Rollback undoes a prior change; the forward DML
+			path already incremented stat_modified_counter
+			unconditionally (it does not wait for commit).
+			Counting the undo as another modification would
+			either double-count committed-then-rolled-back
+			rows or count aborted DML that no observer ever
+			saw. Skip the bump here; MDEV-24303. */
 			if (update_statistics && !dict_locked) {
 				dict_stats_update_if_needed(node->table,
 							    *node->trx);
-			} else {
-				node->table->stat_modified_counter++;
 			}
 		}
 	}

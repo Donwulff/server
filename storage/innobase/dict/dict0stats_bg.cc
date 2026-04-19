@@ -142,12 +142,25 @@ void dict_stats_update_if_needed(dict_table_t *table, trx_t &trx) noexcept
 		return;
 	}
 
-	ulonglong	counter = table->stat_modified_counter++;
-	ulonglong	n_rows = dict_table_get_n_rows(table);
+	/* Cumulative counter for observability (I_S reporting). */
+	table->stat_modified_counter.fetch_add(1);
+
+	/* Heuristic countdown. The hot path stays off stats_mutex and avoids
+	reading stat_n_rows. A lost decrement (two threads racing on the same
+	cache line without the atomic op) would only delay recalc by one
+	event, so memory_order_relaxed is sufficient. */
+	if (UNIV_LIKELY(table->stat_reanalysis_counter.fetch_sub(1) > 0)) {
+		return;
+	}
+
+	/* Counter hit 0 or went negative: schedule/perform recalc and
+	re-arm the countdown. If several threads race here before the
+	re-arm completes they will all fall through; dict_stats_recalc_pool_add
+	deduplicates, and dict_stats_update_transient takes stats_mutex. */
 
 	if (table->stats_is_persistent(stat)) {
 		if (table->stats_is_auto_recalc(stat)
-		    && counter > n_rows / 10 && !table->name.is_temporary()) {
+		    && !table->name.is_temporary()) {
 #ifdef WITH_WSREP
 			/* Do not add table to background
 			statistic calculation if this thread is not a
@@ -173,25 +186,26 @@ void dict_stats_update_if_needed(dict_table_t *table, trx_t &trx) noexcept
 #endif /* WITH_WSREP */
 
 			dict_stats_recalc_pool_add(table->id);
-			table->stat_modified_counter = 0;
+
+			/* Re-arm the countdown so concurrent DMLs don't
+			keep entering this slow path while the background
+			recalc is queued. The final, authoritative reset
+			with the freshly-computed n_rows happens at the
+			end of dict_stats_update_persistent(). */
+			table->stats_mutex_lock();
+			const ulonglong n_rows
+				= dict_table_get_n_rows(table);
+			table->stat_reanalysis_counter.store(
+				static_cast<int64_t>(
+					std::max<ulonglong>(1, n_rows / 10)));
+			table->stats_mutex_unlock();
 		}
 		return;
 	}
 
-	/* Calculate new statistics if 1 / 16 of table has been modified
-	since the last time a statistics batch was run.
-	We calculate statistics at most every 16th round, since we may have
-	a counter table which is very small and updated very often. */
-	ulonglong threshold = 16 + n_rows / 16; /* 6.25% */
-
-	if (srv_stats_modified_counter) {
-		threshold = std::min(srv_stats_modified_counter, threshold);
-	}
-
-	if (counter > threshold) {
-		/* this will reset table->stat_modified_counter to 0 */
-		dict_stats_update_transient(&trx, table);
-	}
+	/* Transient stats path. dict_stats_update_transient() re-arms
+	stat_reanalysis_counter under stats_mutex after writing new stats. */
+	dict_stats_update_transient(&trx, table);
 }
 
 /** Delete a table from the auto recalc pool, and ensure that
