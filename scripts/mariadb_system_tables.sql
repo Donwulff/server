@@ -178,6 +178,7 @@ SET @create_innodb_table_stats="CREATE TABLE IF NOT EXISTS innodb_table_stats (
 	n_rows				BIGINT UNSIGNED NOT NULL,
 	clustered_index_size		BIGINT UNSIGNED NOT NULL,
 	sum_of_other_index_sizes	BIGINT UNSIGNED NOT NULL,
+	reanalysis_counter		BIGINT UNSIGNED NOT NULL DEFAULT 0,
 	PRIMARY KEY (database_name, table_name)
 ) ENGINE=INNODB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_bin STATS_PERSISTENT=0";
 
