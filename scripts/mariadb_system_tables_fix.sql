@@ -805,6 +805,11 @@ if @have_innodb then
   alter table innodb_table_stats modify last_update timestamp not null default current_timestamp on update current_timestamp, modify table_name varchar(199);
 
   alter table innodb_index_stats drop foreign key if exists innodb_index_stats_ibfk_1;
+
+  # MDEV-24303: add reanalysis countdown column to innodb_table_stats
+  # so the per-table auto-recalc counter survives restart instead of
+  # re-arming to full threshold.
+  alter table innodb_table_stats add column if not exists reanalysis_counter bigint unsigned not null default 0;
 end if //
 DELIMITER ;
 

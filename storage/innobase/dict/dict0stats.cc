@@ -206,7 +206,7 @@ struct dict_table_schema_t
 
 static const dict_table_schema_t table_stats_schema =
 {
-  {C_STRING_WITH_LEN(TABLE_STATS_NAME)}, TABLE_STATS_NAME_PRINT, 6,
+  {C_STRING_WITH_LEN(TABLE_STATS_NAME)}, TABLE_STATS_NAME_PRINT, 7,
   {
     {"database_name"_LEX_CSTRING, DATA_VARMYSQL, DATA_NOT_NULL, 192},
     {"table_name"_LEX_CSTRING, DATA_VARMYSQL, DATA_NOT_NULL, 597},
@@ -225,6 +225,11 @@ static const dict_table_schema_t table_stats_schema =
     {"clustered_index_size"_LEX_CSTRING, DATA_INT,
                                          DATA_NOT_NULL | DATA_UNSIGNED, 8},
     {"sum_of_other_index_sizes"_LEX_CSTRING, DATA_INT,
+                                         DATA_NOT_NULL | DATA_UNSIGNED, 8},
+    /* MDEV-24303: the in-memory counter is signed (int64_t) to tolerate
+       a lost reset going briefly negative; on persist we clamp to 0
+       since any non-positive value means "next DML triggers recalc". */
+    {"reanalysis_counter"_LEX_CSTRING, DATA_INT,
                                          DATA_NOT_NULL | DATA_UNSIGNED, 8},
   }
 };
@@ -2880,6 +2885,14 @@ dberr_t dict_stats_save(dict_table_t* table, index_id_t index_id)
 	char		table_utf8[MAX_TABLE_UTF8_LEN];
 	THD* const	thd = current_thd;
 
+	const int64_t reanalysis_counter = table->stat_reanalysis_counter;
+	/* Clamp a transient-negative value (lost-reset race) to 0 before
+	persisting: on restart we want "next DML triggers recalc", which is
+	what a zero countdown means. */
+	const ib_uint64_t reanalysis_counter_persist =
+		reanalysis_counter > 0
+			? static_cast<ib_uint64_t>(reanalysis_counter) : 0;
+
 #ifdef ENABLED_DEBUG_SYNC
 	DBUG_EXECUTE_IF("dict_stats_save_exit_notify",
 	   SCOPE_EXIT([thd] {
@@ -2937,6 +2950,8 @@ dberr_t dict_stats_save(dict_table_t* table, index_id_t index_id)
 		table->stat_clustered_index_size);
 	pars_info_add_ull_literal(pinfo, "sum_of_other_index_sizes",
 		table->stat_sum_of_other_index_sizes);
+	pars_info_add_ull_literal(pinfo, "reanalysis_counter",
+		reanalysis_counter_persist);
 
 	dict_sys.lock(SRW_LOCK_CALL);
 	trx->dict_operation_lock_mode = true;
@@ -2959,7 +2974,8 @@ dberr_t dict_stats_save(dict_table_t* table, index_id_t index_id)
 		":last_update,\n"
 		":n_rows,\n"
 		":clustered_index_size,\n"
-		":sum_of_other_index_sizes\n"
+		":sum_of_other_index_sizes,\n"
+		":reanalysis_counter\n"
 		");\n"
 		"END;", trx);
 
@@ -3078,6 +3094,11 @@ unlocked_free_and_exit:
 	}
 
 	trx->commit();
+	/* Full-stats save just persisted the current reanalysis counter
+	value. Record it so the drift-based flush in dict_stats_bg does
+	not immediately re-write the same value. */
+	table->stat_reanalysis_counter_persisted =
+		static_cast<int64_t>(reanalysis_counter_persist);
 	goto free_and_exit;
 }
 
@@ -3087,6 +3108,108 @@ void dict_stats_empty_table_and_save(dict_table_t *table)
   if (table->stats_is_persistent() &&
       dict_stats_persistent_storage_check(false) == SCHEMA_OK)
     dict_stats_save(table);
+}
+
+/** Drift (measured in row-modification events) that triggers a counter
+flush to mysql.innodb_table_stats. A crash between flushes delays the
+next auto-recalc by at most this many events per table — independent of
+table size. 100k keeps crash-loss small in absolute terms for heavy
+workloads while amortizing I/O to once per (at least) 100k modifications
+per table. */
+static constexpr int64_t STATS_REANALYSIS_FLUSH_DRIFT = 100000;
+
+/** Persist stat_reanalysis_counter for loaded persistent-stats tables
+whose counter has drifted from the last persisted value by at least the
+drift threshold. Runs from the dict_stats background timer on a loose
+cadence and from dict_stats_shutdown() with force=true for clean
+shutdowns. */
+void dict_stats_flush_reanalysis_counters(bool force) noexcept
+{
+  if (srv_read_only_mode)
+    return;
+  if (dict_stats_persistent_storage_check(false) != SCHEMA_OK)
+    return;
+
+  trx_t *trx = trx_create();
+  trx->op_info = "flushing reanalysis counters";
+  trx->dict_operation = true;
+
+  dict_sys.lock(SRW_LOCK_CALL);
+  trx->dict_operation_lock_mode = true;
+
+  dberr_t ret = DB_SUCCESS;
+  ulint n_flushed = 0;
+
+  for (int pass = 0; pass < 2 && ret == DB_SUCCESS; pass++)
+  {
+    dict_table_t *next;
+    for (dict_table_t *table = UT_LIST_GET_FIRST(
+           pass == 0 ? dict_sys.table_LRU : dict_sys.table_non_LRU);
+         table && ret == DB_SUCCESS; table = next)
+    {
+      next = UT_LIST_GET_NEXT(table_LRU, table);
+
+      if (!table->stats_is_persistent() || table->is_temporary()
+          || table->no_rollback()
+          || !table->stat_initialized())
+        continue;
+
+      const int64_t counter = table->stat_reanalysis_counter;
+      const int64_t persisted = table->stat_reanalysis_counter_persisted;
+      const int64_t drift = counter > persisted
+        ? counter - persisted : persisted - counter;
+      if (!force && drift < STATS_REANALYSIS_FLUSH_DRIFT)
+        continue;
+
+      char db_utf8[MAX_DB_UTF8_LEN];
+      char table_utf8[MAX_TABLE_UTF8_LEN];
+      dict_fs2utf8(table->name.m_name, db_utf8, sizeof db_utf8,
+                   table_utf8, sizeof table_utf8);
+
+      const ib_uint64_t to_persist = counter > 0
+        ? static_cast<ib_uint64_t>(counter) : 0;
+
+      pars_info_t *pinfo = pars_info_create();
+      pars_info_add_str_literal(pinfo, "database_name", db_utf8);
+      pars_info_add_str_literal(pinfo, "table_name", table_utf8);
+      pars_info_add_ull_literal(pinfo, "reanalysis_counter", to_persist);
+
+      ret = dict_stats_exec_sql(
+        pinfo,
+        "PROCEDURE FLUSH_REANALYSIS_COUNTER () IS\n"
+        "BEGIN\n"
+        "UPDATE \"" TABLE_STATS_NAME "\" SET\n"
+        "reanalysis_counter = :reanalysis_counter\n"
+        "WHERE\n"
+        "database_name = :database_name AND\n"
+        "table_name = :table_name;\n"
+        "END;", trx);
+
+      if (ret == DB_SUCCESS)
+      {
+        table->stat_reanalysis_counter_persisted =
+          static_cast<int64_t>(to_persist);
+        n_flushed++;
+      }
+      else if (ret == DB_STATS_DO_NOT_EXIST)
+      {
+        /* Schema disappeared mid-walk; nothing more to do. */
+        ret = DB_SUCCESS;
+        break;
+      }
+    }
+  }
+
+  if (ret == DB_SUCCESS && n_flushed)
+    trx->commit();
+  else
+    trx->rollback();
+
+  trx->dict_operation_lock_mode = false;
+  dict_sys.unlock();
+  trx->op_info = "";
+  trx->dict_operation = false;
+  trx->clear_and_free();
 }
 
 /*********************************************************************//**
@@ -3107,8 +3230,8 @@ dict_stats_fetch_table_stats_step(
 	que_common_t*	cnode;
 	int		i;
 
-	/* this should loop exactly 3 times - for
-	n_rows,clustered_index_size,sum_of_other_index_sizes */
+	/* this should loop exactly 4 times - for
+	n_rows,clustered_index_size,sum_of_other_index_sizes,reanalysis_counter */
 	for (cnode = static_cast<que_common_t*>(node->select_list), i = 0;
 	     cnode != NULL;
 	     cnode = static_cast<que_common_t*>(que_node_get_next(cnode)),
@@ -3151,21 +3274,35 @@ dict_stats_fetch_table_stats_step(
 				uint32_t(UT_LIST_GET_LEN(table->indexes) - 1));
 			break;
 		}
+		case 3: /* mysql.innodb_table_stats.reanalysis_counter */
+		{
+			ut_a(dtype_get_mtype(type) == DATA_INT);
+			ut_a(len == 8);
+
+			const ib_uint64_t raw = mach_read_from_8(data);
+			/* Column is BIGINT UNSIGNED, so raw fits in int64_t
+			up to 2^63 - 1 which is orders of magnitude beyond any
+			plausible threshold. */
+			const int64_t counter = static_cast<int64_t>(raw);
+			table->stat_reanalysis_counter.store(counter);
+			table->stat_reanalysis_counter_persisted = counter;
+			break;
+		}
 		default:
 
 			/* someone changed SELECT
-			n_rows,clustered_index_size,sum_of_other_index_sizes
-			to select more columns from innodb_table_stats without
-			adjusting here */
+			n_rows,clustered_index_size,sum_of_other_index_sizes,
+			reanalysis_counter to select more columns from
+			innodb_table_stats without adjusting here */
 			ut_error;
 		}
 	}
 
-	/* if i < 3 this means someone changed the
-	SELECT n_rows,clustered_index_size,sum_of_other_index_sizes
-	to select less columns from innodb_table_stats without adjusting here;
-	if i > 3 we would have ut_error'ed earlier */
-	ut_a(i == 3 /*n_rows,clustered_index_size,sum_of_other_index_sizes*/);
+	/* if i < 4 this means someone changed the SELECT list in
+	dict_stats_fetch_from_ps() to select fewer columns from
+	innodb_table_stats without adjusting here; if i > 4 we would
+	have ut_error'ed earlier. */
+	ut_a(i == 4);
 
 	/* XXX this is not used but returning non-NULL is necessary */
 	return(TRUE);
@@ -3486,7 +3623,8 @@ dberr_t dict_stats_fetch_from_ps(dict_table_t *table)
 		dict_stats_fetch_table_stats_step() */
 		"  n_rows,\n"
 		"  clustered_index_size,\n"
-		"  sum_of_other_index_sizes\n"
+		"  sum_of_other_index_sizes,\n"
+		"  reanalysis_counter\n"
 		"  FROM \"" TABLE_STATS_NAME "\"\n"
 		"  WHERE\n"
 		"  database_name = :database_name AND\n"

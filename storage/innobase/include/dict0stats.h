@@ -174,4 +174,11 @@ void dict_stats_empty_table(dict_table_t *table);
 /** Clear the statistics for a table and save them if
 persistent statistics are enabled. */
 void dict_stats_empty_table_and_save(dict_table_t *table);
+
+/** Persist stat_reanalysis_counter for all loaded persistent-stats tables
+whose in-memory counter has drifted from the value previously written to
+mysql.innodb_table_stats by at least the drift threshold, so that counter
+progress is not lost on crash. Pass force=true to flush every loaded
+table regardless of drift (used on clean shutdown). */
+void dict_stats_flush_reanalysis_counters(bool force= false) noexcept;
 #endif /* dict0stats_h */

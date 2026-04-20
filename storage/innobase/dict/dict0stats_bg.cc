@@ -69,6 +69,7 @@ static recalc_pool_t		recalc_pool;
 static bool			stats_initialised;
 
 static THD *dict_stats_thd;
+static THD *dict_stats_flush_thd;
 
 /*****************************************************************//**
 Free the resources occupied by the recalc pool, called once during
@@ -89,8 +90,14 @@ static void dict_stats_recalc_pool_deinit()
 	recalc_pool_t recalc_empty_pool;
 	recalc_pool.swap(recalc_empty_pool);
 
-	if (dict_stats_thd)
+	if (dict_stats_thd) {
 		destroy_background_thd(dict_stats_thd);
+		dict_stats_thd= nullptr;
+	}
+	if (dict_stats_flush_thd) {
+		destroy_background_thd(dict_stats_flush_thd);
+		dict_stats_flush_thd= nullptr;
+	}
 }
 
 /*****************************************************************//**
@@ -383,6 +390,14 @@ static bool is_recalc_pool_empty()
 }
 
 static tpool::timer* dict_stats_timer;
+
+/** Period at which stat_reanalysis_counter values are flushed to
+mysql.innodb_table_stats. Only tables whose counter has drifted by at
+least STATS_REANALYSIS_FLUSH_DRIFT events are written, so the timer is a
+ceiling on crash-loss latency — not a per-tick I/O cost. */
+static constexpr int STATS_REANALYSIS_FLUSH_INTERVAL_MS= 60000;
+static tpool::timer* dict_stats_flush_timer;
+
 static void dict_stats_func(void*)
 {
   if (!dict_stats_thd)
@@ -397,11 +412,32 @@ static void dict_stats_func(void*)
     dict_stats_schedule(MIN_RECALC_INTERVAL * 1000);
 }
 
+static void dict_stats_flush_func(void*)
+{
+  /* A dedicated THD so this timer cannot race with dict_stats_func on
+  the shared dict_stats_thd when both timers are scheduled on separate
+  worker threads. */
+  if (!dict_stats_flush_thd)
+    dict_stats_flush_thd=
+      innobase_create_background_thd("InnoDB statistics flush");
+  set_current_thd(dict_stats_flush_thd);
+
+  dict_stats_flush_reanalysis_counters(false);
+
+  innobase_reset_background_thd(dict_stats_flush_thd);
+  set_current_thd(nullptr);
+}
+
 
 void dict_stats_start()
 {
   DBUG_ASSERT(!dict_stats_timer);
   dict_stats_timer= srv_thread_pool->create_timer(dict_stats_func);
+  DBUG_ASSERT(!dict_stats_flush_timer);
+  dict_stats_flush_timer=
+    srv_thread_pool->create_timer(dict_stats_flush_func);
+  dict_stats_flush_timer->set_time(STATS_REANALYSIS_FLUSH_INTERVAL_MS,
+                                   STATS_REANALYSIS_FLUSH_INTERVAL_MS);
 }
 
 
@@ -421,4 +457,17 @@ void dict_stats_shutdown()
 {
   delete dict_stats_timer;
   dict_stats_timer= 0;
+  delete dict_stats_flush_timer;
+  dict_stats_flush_timer= 0;
+  /* Final, authoritative flush of reanalysis counters. Timers are
+  destroyed first so no callback can race with this call. dict_sys is
+  still alive here (shutdown is invoked from
+  srv_shutdown_bg_undo_sources, well before dict_sys.close()). */
+  if (!dict_stats_flush_thd)
+    dict_stats_flush_thd=
+      innobase_create_background_thd("InnoDB statistics flush");
+  set_current_thd(dict_stats_flush_thd);
+  dict_stats_flush_reanalysis_counters(true);
+  innobase_reset_background_thd(dict_stats_flush_thd);
+  set_current_thd(nullptr);
 }
