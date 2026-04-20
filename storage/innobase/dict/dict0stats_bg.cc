@@ -460,12 +460,21 @@ void dict_stats_shutdown()
   delete dict_stats_flush_timer;
   dict_stats_flush_timer= 0;
   /* Final, authoritative flush of reanalysis counters. Timers are
-  destroyed first so no callback can race with this call. dict_sys is
-  still alive here (shutdown is invoked from
-  srv_shutdown_bg_undo_sources, well before dict_sys.close()). */
-  if (!dict_stats_flush_thd)
-    dict_stats_flush_thd=
-      innobase_create_background_thd("InnoDB statistics flush");
+  destroyed first so no callback can race with this call.
+
+  dict_stats_shutdown() is reached via plugin_deinitialize() ->
+  ha_finalize_handlerton() -> innobase_end() during both normal and
+  abort paths, at which point the SQL plugin subsystem is itself
+  being torn down. Calling innobase_create_background_thd() here
+  crashes in plugin_thdvar_init() / intern_plugin_lock() because
+  other plugins may already be unloaded. Only flush if the
+  dict_stats_flush_thd was successfully created earlier (meaning the
+  periodic timer fired at least once under a live plugin subsystem).
+  A skipped final flush loses at most one flush interval's worth of
+  drift progress, which is bounded by STATS_REANALYSIS_FLUSH_DRIFT
+  per table and is acceptable for a heuristic counter. */
+  if (!stats_initialised || !dict_stats_flush_thd)
+    return;
   set_current_thd(dict_stats_flush_thd);
   dict_stats_flush_reanalysis_counters(true);
   innobase_reset_background_thd(dict_stats_flush_thd);

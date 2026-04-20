@@ -130,7 +130,7 @@ EOF
 wait_for_server() {
   local tries=60
   while [ $tries -gt 0 ]; do
-    if "$CLIENT" --socket="$SOCKET" -e 'SELECT 1' >/dev/null 2>&1; then
+    if "$CLIENT" --socket="$SOCKET" -u root -e 'SELECT 1' >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -147,7 +147,7 @@ stop_server() {
     pid=$(cat "$PIDFILE" 2>/dev/null || true)
     if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
       log "stopping mariadbd pid=$pid"
-      "$CLIENT" --socket="$SOCKET" -e 'SHUTDOWN' 2>/dev/null || kill "$pid"
+      "$CLIENT" --socket="$SOCKET" -u root -e 'SHUTDOWN' 2>/dev/null || kill "$pid"
       # Wait for shutdown
       local tries=30
       while [ $tries -gt 0 ] && kill -0 "$pid" 2>/dev/null; do
@@ -194,7 +194,7 @@ bootstrap_datadir
 start_server
 
 # Create sysbench database, allow root from localhost without password.
-"$CLIENT" --socket="$SOCKET" -e "
+"$CLIENT" --socket="$SOCKET" -u root -e "
 CREATE DATABASE IF NOT EXISTS sbtest;
 CREATE USER IF NOT EXISTS sbuser@'localhost' IDENTIFIED BY 'sbuser';
 GRANT ALL ON sbtest.* TO sbuser@'localhost';
@@ -261,13 +261,13 @@ done
 
 # --- Collect counter metrics from I_S for a sanity check ---
 log "collecting INNODB_SYS_TABLESTATS snapshot"
-"$CLIENT" --socket="$SOCKET" -e "
+"$CLIENT" --socket="$SOCKET" -u root -e "
   SELECT name, modified_counter, num_rows
   FROM information_schema.innodb_sys_tablestats
   WHERE name LIKE 'sbtest/%' ORDER BY name;" \
   > "$OUTDIR/tablestats_after.txt" 2>&1 || true
 
-"$CLIENT" --socket="$SOCKET" -e "
+"$CLIENT" --socket="$SOCKET" -u root -e "
   SELECT database_name, table_name, n_rows, reanalysis_counter
   FROM mysql.innodb_table_stats
   WHERE database_name='sbtest' ORDER BY table_name;" \

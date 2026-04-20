@@ -590,14 +590,17 @@ static void dict_stats_empty_index(dict_index_t *index)
 }
 
 /** Compute the reanalysis countdown threshold for a table whose current
-n_rows is known. Caller must hold table->stats_mutex_lock().
+n_rows is known. Caller must hold table->stats_mutex_lock(). Reads
+stat_n_rows directly rather than via dict_table_get_n_rows() because
+callers invoke this between writing stat_n_rows and setting
+STATS_INITIALIZED, and the getter asserts stat_initialized().
 @param table          table being initialized
 @param is_persistent  true for persistent stats, false for transient
 @return positive threshold to load into stat_reanalysis_counter */
 static int64_t dict_stats_reanalysis_threshold(const dict_table_t *table,
                                                bool is_persistent) noexcept
 {
-  const ulonglong n_rows= dict_table_get_n_rows(table);
+  const ulonglong n_rows= table->stat_n_rows;
   if (is_persistent)
     return static_cast<int64_t>(std::max<ulonglong>(1, n_rows / 10));
   ulonglong threshold= 16 + n_rows / 16; /* 6.25% */
