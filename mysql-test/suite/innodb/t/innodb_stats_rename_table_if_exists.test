@@ -15,6 +15,8 @@ ENGINE=INNODB STATS_PERSISTENT=1;
 
 BEGIN;
 INSERT INTO mysql.innodb_table_stats
+  (database_name, table_name, last_update, n_rows,
+   clustered_index_size, sum_of_other_index_sizes)
 SELECT
 database_name,
 'stats_rename2' AS table_name,

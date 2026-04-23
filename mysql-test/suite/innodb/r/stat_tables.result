@@ -56,7 +56,7 @@ DROP TABLE t1;
 #
 SELECT * FROM mysql.innodb_table_stats
 WHERE database_name='test' AND table_name='t1';
-database_name	table_name	last_update	n_rows	clustered_index_size	sum_of_other_index_sizes
+database_name	table_name	last_update	n_rows	clustered_index_size	sum_of_other_index_sizes	reanalysis_counter
 SELECT * FROM mysql.innodb_index_stats
 WHERE database_name='test' AND table_name='t1' AND stat_name='size';
 database_name	table_name	index_name	last_update	stat_name	stat_value	sample_size	stat_description

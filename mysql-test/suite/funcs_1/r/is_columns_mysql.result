@@ -114,6 +114,7 @@ def	mysql	innodb_table_stats	clustered_index_size	5	NULL	NO	bigint	NULL	NULL	20	
 def	mysql	innodb_table_stats	database_name	1	NULL	NO	varchar	64	192	NULL	NULL	NULL	utf8mb3	utf8mb3_bin	varchar(64)	PRI		select,insert,update,references		NEVER	NULL	NO	NO	
 def	mysql	innodb_table_stats	last_update	3	current_timestamp()	NO	timestamp	NULL	NULL	NULL	NULL	0	NULL	NULL	timestamp		on update current_timestamp()	select,insert,update,references		NEVER	NULL	NO	NO	
 def	mysql	innodb_table_stats	n_rows	4	NULL	NO	bigint	NULL	NULL	20	0	NULL	NULL	NULL	bigint(20) unsigned			select,insert,update,references		NEVER	NULL	NO	NO	
+def	mysql	innodb_table_stats	reanalysis_counter	7	0	NO	bigint	NULL	NULL	20	0	NULL	NULL	NULL	bigint(20) unsigned			select,insert,update,references		NEVER	NULL	NO	NO	
 def	mysql	innodb_table_stats	sum_of_other_index_sizes	6	NULL	NO	bigint	NULL	NULL	20	0	NULL	NULL	NULL	bigint(20) unsigned			select,insert,update,references		NEVER	NULL	NO	NO	
 def	mysql	innodb_table_stats	table_name	2	NULL	NO	varchar	199	597	NULL	NULL	NULL	utf8mb3	utf8mb3_bin	varchar(199)	PRI		select,insert,update,references		NEVER	NULL	NO	NO	
 def	mysql	plugin	dl	2	''	NO	varchar	128	384	NULL	NULL	NULL	utf8mb3	utf8mb3_general_ci	varchar(128)			select,insert,update,references		NEVER	NULL	NO	NO	
@@ -446,6 +447,7 @@ NULL	mysql	innodb_table_stats	last_update	timestamp	NULL	NULL	NULL	NULL	timestam
 NULL	mysql	innodb_table_stats	n_rows	bigint	NULL	NULL	NULL	NULL	bigint(20) unsigned
 NULL	mysql	innodb_table_stats	clustered_index_size	bigint	NULL	NULL	NULL	NULL	bigint(20) unsigned
 NULL	mysql	innodb_table_stats	sum_of_other_index_sizes	bigint	NULL	NULL	NULL	NULL	bigint(20) unsigned
+NULL	mysql	innodb_table_stats	reanalysis_counter	bigint	NULL	NULL	NULL	NULL	bigint(20) unsigned
 3.0000	mysql	plugin	name	varchar	64	192	utf8mb3	utf8mb3_general_ci	varchar(64)
 3.0000	mysql	plugin	dl	varchar	128	384	utf8mb3	utf8mb3_general_ci	varchar(128)
 3.0000	mysql	proc	db	char	64	192	utf8mb3	utf8mb3_bin	char(64)

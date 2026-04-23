@@ -11,6 +11,7 @@ innodb_table_stats	CREATE TABLE `innodb_table_stats` (
   `n_rows` bigint(20) unsigned NOT NULL,
   `clustered_index_size` bigint(20) unsigned NOT NULL,
   `sum_of_other_index_sizes` bigint(20) unsigned NOT NULL,
+  `reanalysis_counter` bigint(20) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`database_name`,`table_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_bin STATS_PERSISTENT=0
 ALTER TABLE mysql.innodb_table_stats MODIFY last_update TYPE_MYSQL_TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp();
@@ -23,6 +24,7 @@ innodb_table_stats	CREATE TABLE `innodb_table_stats` (
   `n_rows` bigint(20) unsigned NOT NULL,
   `clustered_index_size` bigint(20) unsigned NOT NULL,
   `sum_of_other_index_sizes` bigint(20) unsigned NOT NULL,
+  `reanalysis_counter` bigint(20) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`database_name`,`table_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_bin STATS_PERSISTENT=0
 ALTER TABLE mysql.innodb_index_stats MODIFY last_update TYPE_MYSQL_TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp();
@@ -54,6 +56,7 @@ innodb_table_stats	CREATE TABLE `innodb_table_stats` (
   `n_rows` bigint(20) unsigned NOT NULL,
   `clustered_index_size` bigint(20) unsigned NOT NULL,
   `sum_of_other_index_sizes` bigint(20) unsigned NOT NULL,
+  `reanalysis_counter` bigint(20) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`database_name`,`table_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_bin STATS_PERSISTENT=0
 ALTER TABLE mysql.innodb_index_stats MODIFY last_update TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp();
@@ -97,7 +100,7 @@ DROP TABLE t1;
 #
 SELECT * FROM mysql.innodb_table_stats
 WHERE database_name='test' AND table_name='t1';
-database_name	table_name	last_update	n_rows	clustered_index_size	sum_of_other_index_sizes
+database_name	table_name	last_update	n_rows	clustered_index_size	sum_of_other_index_sizes	reanalysis_counter
 SELECT * FROM mysql.innodb_index_stats
 WHERE database_name='test' AND table_name='t1' AND stat_name='size';
 database_name	table_name	index_name	last_update	stat_name	stat_value	sample_size	stat_description

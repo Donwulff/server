@@ -128,7 +128,7 @@ UNLOCK TABLES;
 LOCK TABLES `innodb_table_stats` WRITE;
 /*!40000 ALTER TABLE `innodb_table_stats` DISABLE KEYS */;
 REPLACE INTO `innodb_table_stats` VALUES
-('test','tz','2019-12-31 21:00:00',394,1,0);
+('test','tz','2019-12-31 21:00:00',394,1,0,39);
 /*!40000 ALTER TABLE `innodb_table_stats` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -748,7 +748,7 @@ UNLOCK TABLES;
 LOCK TABLES `innodb_table_stats` WRITE;
 /*!40000 ALTER TABLE `innodb_table_stats` DISABLE KEYS */;
 REPLACE INTO `innodb_table_stats` VALUES
-('test','tz','2019-12-31 21:00:00',394,1,0);
+('test','tz','2019-12-31 21:00:00',394,1,0,39);
 /*!40000 ALTER TABLE `innodb_table_stats` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1345,7 +1345,7 @@ UNLOCK TABLES;
 LOCK TABLES `innodb_table_stats` WRITE;
 /*!40000 ALTER TABLE `innodb_table_stats` DISABLE KEYS */;
 INSERT IGNORE INTO `innodb_table_stats` VALUES
-('test','tz','2019-12-31 21:00:00',394,1,0);
+('test','tz','2019-12-31 21:00:00',394,1,0,39);
 /*!40000 ALTER TABLE `innodb_table_stats` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1867,7 +1867,7 @@ mysql.time_zone_transition	3719776009
 mysql.plugin	1587119305
 mysql.servers	3232626815
 mysql.func	3241572444
-mysql.innodb_table_stats	1972297402
+mysql.innodb_table_stats	1070799942
 mysql.table_stats	1911089388
 # Opps....
 CREATE USER mariadb_test_restore IDENTIFIED BY 'getitback';
@@ -1902,7 +1902,7 @@ mysql.time_zone_transition	3719776009
 mysql.plugin	1587119305
 mysql.servers	3232626815
 mysql.func	3241572444
-mysql.innodb_table_stats	1972297402
+mysql.innodb_table_stats	1070799942
 mysql.table_stats	1911089388
 DROP FUNCTION IF EXISTS metaphon;
 DROP SERVER s1;

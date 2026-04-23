@@ -6248,6 +6248,7 @@ CREATE TABLE `innodb_table_stats` (
   `n_rows` bigint(20) unsigned NOT NULL,
   `clustered_index_size` bigint(20) unsigned NOT NULL,
   `sum_of_other_index_sizes` bigint(20) unsigned NOT NULL,
+  `reanalysis_counter` bigint(20) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`database_name`,`table_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_bin STATS_PERSISTENT=0;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -6352,6 +6353,7 @@ CREATE TABLE `innodb_table_stats` (
   `n_rows` bigint(20) unsigned NOT NULL,
   `clustered_index_size` bigint(20) unsigned NOT NULL,
   `sum_of_other_index_sizes` bigint(20) unsigned NOT NULL,
+  `reanalysis_counter` bigint(20) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`database_name`,`table_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_bin STATS_PERSISTENT=0;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -6464,6 +6466,7 @@ CREATE TABLE `innodb_table_stats` (
   `n_rows` bigint(20) unsigned NOT NULL,
   `clustered_index_size` bigint(20) unsigned NOT NULL,
   `sum_of_other_index_sizes` bigint(20) unsigned NOT NULL,
+  `reanalysis_counter` bigint(20) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`database_name`,`table_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_bin STATS_PERSISTENT=0;
 /*!40101 SET character_set_client = @saved_cs_client */;
