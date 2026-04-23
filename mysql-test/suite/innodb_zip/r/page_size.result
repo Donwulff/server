@@ -17,7 +17,7 @@ AND	t.name LIKE 'mysql%'
 	ORDER BY t.name, i.index_id;
 table_name	n_cols	table_flags	index_name	root_page	type	n_fields	merge_threshold
 mysql/innodb_index_stats	11	33	PRIMARY	3	3	4	50
-mysql/innodb_table_stats	9	33	PRIMARY	3	3	2	50
+mysql/innodb_table_stats	10	33	PRIMARY	3	3	2	50
 mysql/transaction_registry	8	33	PRIMARY	3	3	1	50
 mysql/transaction_registry	8	33	commit_id	4	2	1	50
 mysql/transaction_registry	8	33	begin_timestamp	5	0	1	50

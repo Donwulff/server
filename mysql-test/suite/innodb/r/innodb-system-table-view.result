@@ -116,7 +116,7 @@ SYS_FOREIGN	0	7
 SYS_FOREIGN_COLS	0	7
 SYS_VIRTUAL	0	6
 mysql/innodb_index_stats	33	11
-mysql/innodb_table_stats	33	9
+mysql/innodb_table_stats	33	10
 mysql/transaction_registry	33	8
 test/child	33	5
 test/parent	33	4
