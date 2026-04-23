@@ -134,7 +134,7 @@ UNLOCK TABLES;
 LOCK TABLES `innodb_table_stats` WRITE;
 /*!40000 ALTER TABLE `innodb_table_stats` DISABLE KEYS */;
 REPLACE INTO `innodb_table_stats` VALUES
-('mysql','tz','2019-12-31 21:00:00',393,1,0);
+('mysql','tz','2019-12-31 21:00:00',393,1,0,39);
 /*!40000 ALTER TABLE `innodb_table_stats` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -752,7 +752,7 @@ UNLOCK TABLES;
 LOCK TABLES `innodb_table_stats` WRITE;
 /*!40000 ALTER TABLE `innodb_table_stats` DISABLE KEYS */;
 REPLACE INTO `innodb_table_stats` VALUES
-('mysql','tz','2019-12-31 21:00:00',393,1,0);
+('mysql','tz','2019-12-31 21:00:00',393,1,0,39);
 /*!40000 ALTER TABLE `innodb_table_stats` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1346,7 +1346,7 @@ UNLOCK TABLES;
 LOCK TABLES `innodb_table_stats` WRITE;
 /*!40000 ALTER TABLE `innodb_table_stats` DISABLE KEYS */;
 INSERT IGNORE INTO `innodb_table_stats` VALUES
-('mysql','tz','2019-12-31 21:00:00',393,1,0);
+('mysql','tz','2019-12-31 21:00:00',393,1,0,39);
 /*!40000 ALTER TABLE `innodb_table_stats` ENABLE KEYS */;
 UNLOCK TABLES;
 
