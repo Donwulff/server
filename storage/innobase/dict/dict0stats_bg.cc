@@ -67,9 +67,13 @@ by background statistics gathering. */
 static recalc_pool_t		recalc_pool;
 /** Whether the global data structures have been initialized */
 static bool			stats_initialised;
+/** Whether shutdown has started and stats workers must stop scheduling work. */
+static bool                     stats_shutdown_in_progress;
 
 static THD *dict_stats_thd;
 static THD *dict_stats_flush_thd;
+static tpool::timer* dict_stats_timer;
+static tpool::timer* dict_stats_flush_timer;
 
 /*****************************************************************//**
 Free the resources occupied by the recalc pool, called once during
@@ -269,6 +273,7 @@ void dict_stats_init()
   mysql_mutex_init(recalc_pool_mutex_key, &recalc_pool_mutex, nullptr);
   pthread_cond_init(&recalc_pool_cond, nullptr);
   stats_initialised= true;
+  stats_shutdown_in_progress= false;
 }
 
 /*****************************************************************//**
@@ -281,6 +286,14 @@ void dict_stats_deinit()
 	}
 
 	ut_ad(!srv_read_only_mode);
+	if (dict_stats_timer) {
+		delete dict_stats_timer;
+		dict_stats_timer= nullptr;
+	}
+	if (dict_stats_flush_timer) {
+		delete dict_stats_flush_timer;
+		dict_stats_flush_timer= nullptr;
+	}
 	stats_initialised = false;
 
 	dict_stats_recalc_pool_deinit();
@@ -296,6 +309,8 @@ update its stats.
 static bool dict_stats_process_entry_from_recalc_pool(THD *thd)
 {
   ut_ad(!srv_read_only_mode);
+  if (UNIV_UNLIKELY(stats_shutdown_in_progress))
+    return false;
   table_id_t table_id;
   mysql_mutex_lock(&recalc_pool_mutex);
 next_table_id_with_mutex:
@@ -389,17 +404,16 @@ static bool is_recalc_pool_empty()
   return empty;
 }
 
-static tpool::timer* dict_stats_timer;
-
 /** Period at which stat_reanalysis_counter values are flushed to
 mysql.innodb_table_stats. Only tables whose counter has drifted by at
 least STATS_REANALYSIS_FLUSH_DRIFT events are written, so the timer is a
 ceiling on crash-loss latency — not a per-tick I/O cost. */
 static constexpr int STATS_REANALYSIS_FLUSH_INTERVAL_MS= 60000;
-static tpool::timer* dict_stats_flush_timer;
 
 static void dict_stats_func(void*)
 {
+  if (UNIV_UNLIKELY(stats_shutdown_in_progress))
+    return;
   if (!dict_stats_thd)
     dict_stats_thd= innobase_create_background_thd("InnoDB statistics");
   set_current_thd(dict_stats_thd);
@@ -408,12 +422,14 @@ static void dict_stats_func(void*)
 
   innobase_reset_background_thd(dict_stats_thd);
   set_current_thd(nullptr);
-  if (!is_recalc_pool_empty())
+  if (!stats_shutdown_in_progress && !is_recalc_pool_empty())
     dict_stats_schedule(MIN_RECALC_INTERVAL * 1000);
 }
 
 static void dict_stats_flush_func(void*)
 {
+  if (UNIV_UNLIKELY(stats_shutdown_in_progress))
+    return;
   /* A dedicated THD so this timer cannot race with dict_stats_func on
   the shared dict_stats_thd when both timers are scheduled on separate
   worker threads. */
@@ -443,7 +459,7 @@ void dict_stats_start()
 
 static void dict_stats_schedule(int ms)
 {
-  if(dict_stats_timer)
+  if(dict_stats_timer && !stats_shutdown_in_progress)
     dict_stats_timer->set_time(ms,0);
 }
 
@@ -455,12 +471,11 @@ void dict_stats_schedule_now()
 /** Shut down the dict_stats_thread. */
 void dict_stats_shutdown()
 {
-  delete dict_stats_timer;
-  dict_stats_timer= 0;
-  delete dict_stats_flush_timer;
-  dict_stats_flush_timer= 0;
+  stats_shutdown_in_progress= true;
   /* Final, authoritative flush of reanalysis counters. Timers are
-  destroyed first so no callback can race with this call.
+  quiesced first so no callback will schedule new work. The timer
+  objects themselves are destroyed later from dict_stats_deinit(),
+  after srv_shutdown_threads() has drained worker activity.
 
   dict_stats_shutdown() is reached via plugin_deinitialize() ->
   ha_finalize_handlerton() -> innobase_end() during both normal and

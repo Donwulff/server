@@ -3125,41 +3125,73 @@ static constexpr int64_t STATS_REANALYSIS_FLUSH_DRIFT = 100000;
 whose counter has drifted from the last persisted value by at least the
 drift threshold. Runs from the dict_stats background timer on a loose
 cadence and from dict_stats_shutdown() with force=true for clean
-shutdowns. */
+shutdowns. Must run with current_thd set to a live background THD,
+because the SQL layer needs MDL and a transaction-owned stats-table
+lock before entering dict_operation_lock_mode. */
 void dict_stats_flush_reanalysis_counters(bool force) noexcept
 {
-  if (srv_read_only_mode)
+  if (srv_read_only_mode || high_level_read_only)
     return;
   if (dict_stats_persistent_storage_check(false) != SCHEMA_OK)
     return;
 
-  trx_t *trx = trx_create();
-  trx->op_info = "flushing reanalysis counters";
-  trx->dict_operation = true;
+  THD *const thd= current_thd;
+  if (!thd)
+    return;
+
+  /* Pin mysql.innodb_table_stats via MDL + handler ref, then acquire a
+  table X lock up front. lock_table_create() asserts
+  !trx->dict_operation_lock_mode, so the DML run under dict_sys.lock()
+  must not trigger fresh table-lock creation. The cached X lock makes
+  lock_table_has() hit and skips lock_table_create(), mirroring
+  dict_stats_save(). */
+  dict_stats stats;
+  if (stats.open(thd))
+    return;
+
+  trx_t *trx= trx_create();
+  trx->mysql_thd= thd;
+  trx->op_info= "flushing reanalysis counters";
+  trx_start_internal(trx);
+
+  dberr_t ret= trx->read_only
+    ? DB_READ_ONLY
+    : lock_table_for_trx(stats.table(), trx, LOCK_X);
+  if (ret != DB_SUCCESS)
+  {
+    if (trx->state != TRX_STATE_NOT_STARTED)
+      trx->commit();
+    trx->op_info= "";
+    trx->clear_and_free();
+    stats.close();
+    return;
+  }
 
   dict_sys.lock(SRW_LOCK_CALL);
-  trx->dict_operation_lock_mode = true;
+  trx->dict_operation_lock_mode= true;
 
-  dberr_t ret = DB_SUCCESS;
-  ulint n_flushed = 0;
+  ulint n_flushed= 0;
 
-  for (int pass = 0; pass < 2 && ret == DB_SUCCESS; pass++)
+  for (int pass= 0; pass < 2 && ret == DB_SUCCESS; pass++)
   {
     dict_table_t *next;
-    for (dict_table_t *table = UT_LIST_GET_FIRST(
+    for (dict_table_t *table= UT_LIST_GET_FIRST(
            pass == 0 ? dict_sys.table_LRU : dict_sys.table_non_LRU);
-         table && ret == DB_SUCCESS; table = next)
+         table && ret == DB_SUCCESS; table= next)
     {
-      next = UT_LIST_GET_NEXT(table_LRU, table);
+      next= UT_LIST_GET_NEXT(table_LRU, table);
+
+      if (table == stats.table() || table == stats.index())
+        continue;
 
       if (!table->stats_is_persistent() || table->is_temporary()
           || table->no_rollback()
           || !table->stat_initialized())
         continue;
 
-      const int64_t counter = table->stat_reanalysis_counter;
-      const int64_t persisted = table->stat_reanalysis_counter_persisted;
-      const int64_t drift = counter > persisted
+      const int64_t counter= table->stat_reanalysis_counter;
+      const int64_t persisted= table->stat_reanalysis_counter_persisted;
+      const int64_t drift= counter > persisted
         ? counter - persisted : persisted - counter;
       if (!force && drift < STATS_REANALYSIS_FLUSH_DRIFT)
         continue;
@@ -3169,15 +3201,15 @@ void dict_stats_flush_reanalysis_counters(bool force) noexcept
       dict_fs2utf8(table->name.m_name, db_utf8, sizeof db_utf8,
                    table_utf8, sizeof table_utf8);
 
-      const ib_uint64_t to_persist = counter > 0
+      const ib_uint64_t to_persist= counter > 0
         ? static_cast<ib_uint64_t>(counter) : 0;
 
-      pars_info_t *pinfo = pars_info_create();
+      pars_info_t *pinfo= pars_info_create();
       pars_info_add_str_literal(pinfo, "database_name", db_utf8);
       pars_info_add_str_literal(pinfo, "table_name", table_utf8);
       pars_info_add_ull_literal(pinfo, "reanalysis_counter", to_persist);
 
-      ret = dict_stats_exec_sql(
+      ret= dict_stats_exec_sql(
         pinfo,
         "PROCEDURE FLUSH_REANALYSIS_COUNTER () IS\n"
         "BEGIN\n"
@@ -3190,29 +3222,28 @@ void dict_stats_flush_reanalysis_counters(bool force) noexcept
 
       if (ret == DB_SUCCESS)
       {
-        table->stat_reanalysis_counter_persisted =
+        table->stat_reanalysis_counter_persisted=
           static_cast<int64_t>(to_persist);
         n_flushed++;
       }
       else if (ret == DB_STATS_DO_NOT_EXIST)
       {
-        /* Schema disappeared mid-walk; nothing more to do. */
-        ret = DB_SUCCESS;
+        ret= DB_SUCCESS;
         break;
       }
     }
   }
 
+  trx->dict_operation_lock_mode= false;
+  dict_sys.unlock();
+
   if (ret == DB_SUCCESS && n_flushed)
     trx->commit();
   else
     trx->rollback();
-
-  trx->dict_operation_lock_mode = false;
-  dict_sys.unlock();
-  trx->op_info = "";
-  trx->dict_operation = false;
+  trx->op_info= "";
   trx->clear_and_free();
+  stats.close();
 }
 
 /*********************************************************************//**
