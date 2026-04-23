@@ -625,8 +625,15 @@ void dict_stats_empty_table(dict_table_t *table)
 	table->stat_sum_of_other_index_sizes
 		= uint32_t(UT_LIST_GET_LEN(table->indexes) - 1);
 	table->stat_modified_counter = 0;
-	/* Empty table: next DML should trigger recalc immediately. */
-	table->stat_reanalysis_counter.store(0);
+	/* Arm the countdown with the same threshold formula the hot path
+	uses when it reloads, so an empty table fires its first auto-recalc
+	after the same number of modifications as a freshly analyzed one.
+	Starting at 0 would fire on the very first DML, which races the
+	background recalc against concurrent inserts and publishes stale
+	n_rows. */
+	table->stat_reanalysis_counter.store(
+		dict_stats_reanalysis_threshold(table,
+			table->stats_is_persistent()));
 
 	dict_index_t*	index;
 
