@@ -2649,11 +2649,12 @@ dberr_t dict_stats_update_persistent(dict_table_t *table) noexcept
 		return(DB_CORRUPTION);
 	}
 
+	/* Do not publish zeros before the slow analyze: optimizer readers
+	access stat_n_diff_key_vals[] without stats_mutex, and a transient
+	zero makes innodb_rec_per_key() return the record count, producing
+	catastrophic plans for the duration of the recalc.  The previous
+	recalc's values stay visible until the swap below. */
 	ut_ad(!dict_index_is_ibuf(index));
-	table->stats_mutex_lock();
-	dict_stats_empty_index(index, false);
-	table->stats_mutex_unlock();
-
 	index_stats_t stats = dict_stats_analyze_index(index);
 
 	if (stats.is_bulk_operation()) {
@@ -2688,9 +2689,11 @@ dberr_t dict_stats_update_persistent(dict_table_t *table) noexcept
 			continue;
 		}
 
-		dict_stats_empty_index(index, false);
-
 		if (dict_stats_should_ignore_index(index)) {
+			/* to_be_dropped or uncommitted btree: publish zeros.
+			Non-ignored indexes keep their previous values until
+			the swap below, to avoid the recalc zero window. */
+			dict_stats_empty_index(index, false);
 			continue;
 		}
 
