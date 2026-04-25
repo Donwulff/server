@@ -8963,14 +8963,12 @@ ha_innobase::index_read(
 		DBUG_RETURN(HA_ERR_ROLLBACK);
 	}
 
-	/* For R-Tree index, we will always place the page lock to
-	pages being searched */
+	/* R-tree predicate locking requires !is_autocommit_non_locking().
+	Set will_lock before trx_start_low() picks read_only, and also for
+	the already-started case (MDEV-26123); the latter only takes effect
+	for plain SELECTs (LOCK_NONE) which never call lock_rec_create(). */
 	if (index->is_spatial() && !m_prebuilt->trx->will_lock) {
-		if (trx_state != TRX_STATE_NOT_STARTED) {
-			DBUG_RETURN(HA_ERR_READ_ONLY_TRANSACTION);
-		} else {
-			m_prebuilt->trx->will_lock = true;
-		}
+		m_prebuilt->trx->will_lock = true;
 	}
 
 	/* Note that if the index for which the search template is built is not
