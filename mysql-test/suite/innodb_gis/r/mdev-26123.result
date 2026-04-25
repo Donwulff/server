@@ -1,0 +1,47 @@
+#
+# MDEV-26123 Spatial index access in an already-started transaction
+# fails with ER_READ_ONLY_TRANSACTION (1207).
+#
+# Root cause: ha_innobase::index_read() had a guard (MDEV-25594) that
+# returned HA_ERR_READ_ONLY_TRANSACTION when a spatial index was
+# accessed while the trx was already active with will_lock=false.
+# This state occurs in autocommit SELECTs when a non-spatial index
+# access starts the trx first (e.g. rowid filter, subquery).
+#
+# MDEV-25594 added the guard to keep an autocommit non-locking trx
+# from transitioning to locking mid-stream (which confused the
+# deadlock checker).  For plain SELECTs (LOCK_NONE), no record or
+# predicate lock is ever taken, so flipping will_lock=true is safe:
+# lock_rec_create() is never reached.
+#
+#
+# Case A: Subquery forces non-spatial table scan first.
+# The subquery accesses t1 via clustered PK (non-spatial), starting the
+# trx with will_lock=false.  The outer MBRIntersects range scan on t2
+# then uses the spatial index — previously tripped the guard.
+#
+CREATE TABLE t1 (id INT PRIMARY KEY, p POINT NOT NULL, SPATIAL KEY(p)) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1, ST_PointFromText('POINT(1 2)'));
+CREATE TABLE t2 (id INT PRIMARY KEY, p POINT NOT NULL, SPATIAL KEY(p)) ENGINE=InnoDB;
+INSERT INTO t2 VALUES (1, ST_PointFromText('POINT(1 2)'));
+SELECT ST_AsText(t2.p) FROM t2
+WHERE MBRIntersects(t2.p, (SELECT p FROM t1 LIMIT 1));
+ST_AsText(t2.p)
+POINT(1 2)
+DROP TABLE t1, t2;
+#
+# Case B: Multi-table query where optimizer reads a non-spatial index
+# for one table before using the spatial index of another.
+#
+CREATE TABLE t_ns (id INT PRIMARY KEY, val INT) ENGINE=InnoDB;
+CREATE TABLE t_sp (id INT PRIMARY KEY, g POINT NOT NULL, SPATIAL KEY(g)) ENGINE=InnoDB;
+INSERT INTO t_ns VALUES (1,10),(2,20),(3,30);
+INSERT INTO t_sp VALUES (1, ST_PointFromText('POINT(1 2)')),
+(2, ST_PointFromText('POINT(4 5)')),
+(3, ST_PointFromText('POINT(10 10)'));
+SELECT ST_AsText(s.g) FROM t_ns n JOIN t_sp s ON n.id = s.id
+WHERE MBRIntersects(s.g, ST_GeomFromText('Polygon((0 0,3 0,3 3,0 3,0 0))'))
+ORDER BY n.id;
+ST_AsText(s.g)
+POINT(1 2)
+DROP TABLE t_ns, t_sp;
