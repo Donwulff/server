@@ -1,0 +1,45 @@
+--source include/have_innodb.inc
+--source include/have_debug.inc
+--source include/have_debug_sync.inc
+--source include/have_sequence.inc
+
+CREATE TABLE stats_zero_window (
+  id INT PRIMARY KEY,
+  k INT NOT NULL,
+  KEY k_idx(k)
+) ENGINE=InnoDB STATS_PERSISTENT=1;
+
+INSERT INTO stats_zero_window SELECT seq, seq FROM seq_1_to_100;
+ANALYZE TABLE stats_zero_window;
+
+SELECT CARDINALITY > 0 AS cardinality_visible
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = 'stats_zero_window'
+  AND INDEX_NAME = 'k_idx'
+  AND COLUMN_NAME = 'k';
+
+--connect(con1, localhost, root)
+SET DEBUG_SYNC=
+  'dict_stats_before_analyze_secondary_index SIGNAL analyzing WAIT_FOR go';
+--send ANALYZE TABLE stats_zero_window
+
+--connection default
+SET DEBUG_SYNC='now WAIT_FOR analyzing';
+
+SELECT CARDINALITY > 0 AS cardinality_visible
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = 'stats_zero_window'
+  AND INDEX_NAME = 'k_idx'
+  AND COLUMN_NAME = 'k';
+
+SET DEBUG_SYNC='now SIGNAL go';
+
+--connection con1
+--reap
+SET DEBUG_SYNC='RESET';
+--disconnect con1
+
+--connection default
+DROP TABLE stats_zero_window;
