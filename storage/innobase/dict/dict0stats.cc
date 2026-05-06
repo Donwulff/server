@@ -695,6 +695,9 @@ dict_stats_assert_initialized(
 	MEM_CHECK_DEFINED(&table->stat_reanalysis_counter,
 			  sizeof table->stat_reanalysis_counter);
 
+	MEM_CHECK_DEFINED(&table->stat_reanalysis_counter_persisted,
+			  sizeof table->stat_reanalysis_counter_persisted);
+
 	for (dict_index_t* index = dict_table_get_first_index(table);
 	     index != NULL;
 	     index = dict_table_get_next_index(index)) {
@@ -2876,7 +2879,8 @@ dberr_t dict_stats_save(dict_table_t* table, unsigned stats_method,
 	char		table_utf8[MAX_TABLE_UTF8_LEN];
 	THD* const	thd = current_thd;
 
-	const int64_t reanalysis_counter = table->stat_reanalysis_counter;
+	const int64_t reanalysis_counter =
+		table->stat_reanalysis_counter.load();
 	/* Clamp a transient-negative value (lost-reset race) to 0 before
 	persisting: on restart we want "next DML triggers recalc", which is
 	what a zero countdown means. */
@@ -3124,8 +3128,8 @@ unlocked_free_and_exit:
 	/* Full-stats save just persisted the current reanalysis counter
 	value. Record it so the drift-based flush in dict_stats_bg does
 	not immediately re-write the same value. */
-	table->stat_reanalysis_counter_persisted =
-		static_cast<int64_t>(reanalysis_counter_persist);
+	table->stat_reanalysis_counter_persisted.store(
+		static_cast<int64_t>(reanalysis_counter_persist));
 	goto free_and_exit;
 }
 
@@ -3218,8 +3222,9 @@ void dict_stats_flush_reanalysis_counters(bool force) noexcept
           || !table->stat_initialized())
         continue;
 
-      const int64_t counter= table->stat_reanalysis_counter;
-      const int64_t persisted= table->stat_reanalysis_counter_persisted;
+      const int64_t counter= table->stat_reanalysis_counter.load();
+      const int64_t persisted=
+        table->stat_reanalysis_counter_persisted.load();
       const int64_t drift= counter > persisted
         ? counter - persisted : persisted - counter;
       if (!force && drift < STATS_REANALYSIS_FLUSH_DRIFT)
@@ -3251,8 +3256,8 @@ void dict_stats_flush_reanalysis_counters(bool force) noexcept
 
       if (ret == DB_SUCCESS)
       {
-        table->stat_reanalysis_counter_persisted=
-          static_cast<int64_t>(to_persist);
+        table->stat_reanalysis_counter_persisted.store(
+          static_cast<int64_t>(to_persist));
         n_flushed++;
       }
       else if (ret == DB_STATS_DO_NOT_EXIST)
@@ -3348,7 +3353,7 @@ dict_stats_fetch_table_stats_step(
 			plausible threshold. */
 			const int64_t counter = static_cast<int64_t>(raw);
 			table->stat_reanalysis_counter.store(counter);
-			table->stat_reanalysis_counter_persisted = counter;
+			table->stat_reanalysis_counter_persisted.store(counter);
 			break;
 		}
 		default:
