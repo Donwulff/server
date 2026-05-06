@@ -2416,11 +2416,11 @@ public:
 	Atomic_relaxed<int64_t>			stat_reanalysis_counter;
 
 	/** Last value of stat_reanalysis_counter persisted to
-	mysql.innodb_table_stats. Read and written only by the background
-	statistics thread, so no atomic access is needed. Used to compute
-	drift for the periodic persistence flush; see
+	mysql.innodb_table_stats. Written by stats load, ANALYZE/stat-save,
+	and the background flush timer, so relaxed atomic access is required.
+	Used to compute drift for the periodic persistence flush; see
 	dict_stats_flush_reanalysis_counters(). */
-	int64_t					stat_reanalysis_counter_persisted;
+	Atomic_relaxed<int64_t>			stat_reanalysis_counter_persisted;
 
 	bool		stats_error_printed;
 				/*!< Has persistent stats error been
