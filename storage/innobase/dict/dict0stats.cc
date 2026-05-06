@@ -2698,6 +2698,7 @@ dberr_t dict_stats_update_persistent(dict_table_t *table) noexcept
 		}
 
 		table->stats_mutex_unlock();
+		DEBUG_SYNC_C("dict_stats_before_analyze_secondary_index");
 		stats = dict_stats_analyze_index(index);
 		table->stats_mutex_lock();
 
