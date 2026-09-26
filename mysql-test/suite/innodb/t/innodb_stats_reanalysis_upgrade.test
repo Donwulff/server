@@ -1,0 +1,35 @@
+--source include/have_innodb.inc
+--source include/mysql_upgrade_preparation.inc
+
+# Simulate the system-table layout of an unpatched installation. The
+# upgrade must add the counter without dropping existing persistent stats.
+CREATE TABLE reanalysis_upgrade (id INT PRIMARY KEY) ENGINE=InnoDB
+STATS_PERSISTENT=1 STATS_AUTO_RECALC=0;
+INSERT INTO reanalysis_upgrade VALUES (1), (2), (3);
+SET STATEMENT use_stat_tables=never FOR ANALYZE TABLE reanalysis_upgrade;
+
+CALL mtr.add_suppression("InnoDB: Table mysql.innodb_table_stats has 6 columns but should have 7");
+ALTER TABLE mysql.innodb_table_stats DROP COLUMN reanalysis_counter;
+
+--exec $MYSQL_UPGRADE --force --upgrade-system-tables > $MYSQLTEST_VARDIR/tmp/reanalysis_upgrade.log 2>&1
+
+SELECT n_rows, reanalysis_counter FROM mysql.innodb_table_stats
+WHERE database_name = DATABASE() AND table_name = 'reanalysis_upgrade';
+
+SET STATEMENT use_stat_tables=never FOR ANALYZE TABLE reanalysis_upgrade;
+SELECT n_rows, reanalysis_counter FROM mysql.innodb_table_stats
+WHERE database_name = DATABASE() AND table_name = 'reanalysis_upgrade';
+
+# A second upgrade is harmless and preserves the initialized counter.
+--exec $MYSQL_UPGRADE --force --upgrade-system-tables > $MYSQLTEST_VARDIR/tmp/reanalysis_upgrade.log 2>&1
+--remove_file $MYSQLTEST_VARDIR/tmp/reanalysis_upgrade.log
+--let $MYSQLD_DATADIR= `SELECT @@datadir`
+--remove_file $MYSQLD_DATADIR/mariadb_upgrade_info
+
+--let $restart_noprint=2
+--source include/restart_mysqld.inc
+
+SELECT COUNT(*) FROM reanalysis_upgrade;
+SELECT n_rows, reanalysis_counter FROM mysql.innodb_table_stats
+WHERE database_name = DATABASE() AND table_name = 'reanalysis_upgrade';
+DROP TABLE reanalysis_upgrade;
