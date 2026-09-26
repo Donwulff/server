@@ -1,0 +1,27 @@
+CREATE TABLE reanalysis_upgrade (id INT PRIMARY KEY) ENGINE=InnoDB
+STATS_PERSISTENT=1 STATS_AUTO_RECALC=0;
+INSERT INTO reanalysis_upgrade VALUES (1), (2), (3);
+SET STATEMENT use_stat_tables=never FOR ANALYZE TABLE reanalysis_upgrade;
+Table	Op	Msg_type	Msg_text
+test.reanalysis_upgrade	analyze	status	OK
+CALL mtr.add_suppression("InnoDB: Table mysql.innodb_table_stats has 6 columns but should have 7");
+ALTER TABLE mysql.innodb_table_stats DROP COLUMN reanalysis_counter;
+SELECT n_rows, reanalysis_counter FROM mysql.innodb_table_stats
+WHERE database_name = DATABASE() AND table_name = 'reanalysis_upgrade';
+n_rows	reanalysis_counter
+3	0
+SET STATEMENT use_stat_tables=never FOR ANALYZE TABLE reanalysis_upgrade;
+Table	Op	Msg_type	Msg_text
+test.reanalysis_upgrade	analyze	status	OK
+SELECT n_rows, reanalysis_counter FROM mysql.innodb_table_stats
+WHERE database_name = DATABASE() AND table_name = 'reanalysis_upgrade';
+n_rows	reanalysis_counter
+3	1
+SELECT COUNT(*) FROM reanalysis_upgrade;
+COUNT(*)
+3
+SELECT n_rows, reanalysis_counter FROM mysql.innodb_table_stats
+WHERE database_name = DATABASE() AND table_name = 'reanalysis_upgrade';
+n_rows	reanalysis_counter
+3	1
+DROP TABLE reanalysis_upgrade;
