@@ -33,7 +33,7 @@ WHERE n.id > 0
 AND MBRIntersects(s.g, ST_GeomFromText('Polygon((0 0,3 0,3 3,0 3,0 0))'))
 ORDER BY n.id;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	Extra
-1	SIMPLE	n	range	PRIMARY	PRIMARY	4	NULL	ROWS	Using where; Using temporary; Using filesort
+1	SIMPLE	n	range	PRIMARY	PRIMARY	4	NULL	ROWS	Using where; Using index; Using temporary; Using filesort
 1	SIMPLE	s	range	g_idx	g_idx	34	NULL	ROWS	Using where; Using join buffer (flat, BNL join)
 SELECT ST_AsText(s.g) FROM t_ns n FORCE INDEX(PRIMARY)
 STRAIGHT_JOIN t_sp s FORCE INDEX(g_idx) ON n.id = s.id

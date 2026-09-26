@@ -1863,7 +1863,7 @@ mysql.time_zone_transition	3895294076
 mysql.plugin	1587119305
 mysql.servers	4086772068
 mysql.func	2140302938
-mysql.innodb_table_stats	347867921
+mysql.innodb_table_stats	3706663717
 mysql.table_stats	664320059
 # Opps....
 CREATE USER mariadb_test_restore IDENTIFIED BY 'getitback';
@@ -1900,7 +1900,7 @@ mysql.time_zone_transition	3895294076
 mysql.plugin	1587119305
 mysql.servers	4086772068
 mysql.func	2140302938
-mysql.innodb_table_stats	347867921
+mysql.innodb_table_stats	3706663717
 mysql.table_stats	664320059
 DROP FUNCTION IF EXISTS metaphon;
 DROP FUNCTION IF EXISTS avgcost;

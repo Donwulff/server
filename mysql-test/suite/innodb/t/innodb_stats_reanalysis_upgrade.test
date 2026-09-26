@@ -24,7 +24,7 @@ WHERE database_name = DATABASE() AND table_name = 'reanalysis_upgrade';
 --exec $MYSQL_UPGRADE --force --upgrade-system-tables > $MYSQLTEST_VARDIR/tmp/reanalysis_upgrade.log 2>&1
 --remove_file $MYSQLTEST_VARDIR/tmp/reanalysis_upgrade.log
 --let $MYSQLD_DATADIR= `SELECT @@datadir`
---remove_file $MYSQLD_DATADIR/mariadb_upgrade_info
+--remove_file $MYSQLD_DATADIR/mysql_upgrade_info
 
 --let $restart_noprint=2
 --source include/restart_mysqld.inc
