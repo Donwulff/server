@@ -1,0 +1,28 @@
+--source include/have_innodb.inc
+--source include/have_sequence.inc
+--source include/not_embedded.inc
+
+CREATE TABLE mdev24303 (i int PRIMARY KEY) ENGINE=InnoDB
+STATS_PERSISTENT=1, STATS_AUTO_RECALC=1;
+
+INSERT INTO mdev24303 SELECT seq FROM seq_1_to_100;
+
+SET STATEMENT use_stat_tables=never FOR
+ANALYZE TABLE mdev24303;
+
+UPDATE mysql.innodb_table_stats SET reanalysis_counter = 0
+WHERE database_name = DATABASE() AND table_name = 'mdev24303';
+
+--let $restart_noprint=2
+--source include/restart_mysqld.inc
+
+INSERT INTO mdev24303 VALUES (101);
+
+let $wait_condition = SELECT stat_value = 101 FROM mysql.innodb_index_stats WHERE database_name = 'test' AND table_name = 'mdev24303' AND index_name = 'PRIMARY' AND stat_name = 'n_diff_pfx01';
+--source include/wait_condition.inc
+
+SELECT n_rows = 101 AS recalced, reanalysis_counter > 0 AS rearmed
+FROM mysql.innodb_table_stats
+WHERE database_name = DATABASE() AND table_name = 'mdev24303';
+
+DROP TABLE mdev24303;

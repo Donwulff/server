@@ -2601,13 +2601,31 @@ public:
 	new estimates. */
 	ib_uint64_t				stat_n_rows;
 
-	/** How many rows are modified since last stats recalc. When a row is
-	inserted, updated, or deleted, we add 1 to this number; we calculate
-	new estimates for the table and the indexes if the table has changed
-	too much, see dict_stats_update_if_needed(). The counter is reset
-	to zero at statistics calculation. This counter is not protected by
-	any latch, because this is only used for heuristics. */
-	ib_uint64_t				stat_modified_counter;
+	/** Cumulative number of rows modified since table load. Incremented
+	by each INSERT, UPDATE, or DELETE. Reset to zero only when the table
+	is logically emptied (see dict_stats_empty_table()); carries across
+	auto-recalc events so that external observers see monotonic progress.
+	Exposed via INFORMATION_SCHEMA.INNODB_SYS_TABLESTATS.MODIFIED_COUNTER.
+	Heuristic scheduling is driven by stat_reanalysis_counter below;
+	this field exists purely for observability. */
+	Atomic_relaxed<uint64_t>		stat_modified_counter;
+
+	/** Countdown toward the next automatic statistics recalculation.
+	Initialized to a threshold (n_rows/10 for persistent stats, or
+	min(srv_stats_modified_counter, 16 + n_rows/16) for transient stats)
+	after each recalc; decremented once per row modification. When it
+	reaches 0 or goes negative, a background recalc is scheduled
+	(persistent) or dict_stats_update_transient() is invoked inline.
+	Signed so that a lost decrement merely delays recalc by one event
+	rather than wrapping. */
+	Atomic_relaxed<int64_t>			stat_reanalysis_counter;
+
+	/** Last value of stat_reanalysis_counter persisted to
+	mysql.innodb_table_stats. Written by stats load, ANALYZE/stat-save,
+	and the background flush timer, so relaxed atomic access is required.
+	Used to compute drift for the periodic persistence flush; see
+	dict_stats_flush_reanalysis_counters(). */
+	Atomic_relaxed<int64_t>			stat_reanalysis_counter_persisted;
 
 	bool		stats_error_printed;
 				/*!< Has persistent stats error been

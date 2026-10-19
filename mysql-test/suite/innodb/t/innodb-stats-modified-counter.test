@@ -26,3 +26,26 @@ SELECT NAME, STATS_INITIALIZED, NUM_ROWS, MODIFIED_COUNTER FROM INFORMATION_SCHE
 DROP TABLE t1;
 
 set global innodb_stats_auto_recalc=default;
+
+#
+# MDEV-24303: automatic stats recalculation must not reset the
+# INFORMATION_SCHEMA.INNODB_SYS_TABLESTATS.MODIFIED_COUNTER value that
+# users observe.
+#
+
+set global innodb_stats_auto_recalc=on;
+
+CREATE TABLE t1 (i int PRIMARY KEY) ENGINE=InnoDB
+STATS_PERSISTENT=1, STATS_AUTO_RECALC=1;
+
+INSERT INTO t1 VALUES (1);
+INSERT INTO t1 VALUES (2);
+
+let $wait_condition = SELECT stat_value = 2 FROM mysql.innodb_index_stats WHERE table_name = 't1' AND index_name = 'PRIMARY' AND stat_name = 'n_diff_pfx01';
+-- source include/wait_condition.inc
+
+SELECT NAME, STATS_INITIALIZED, NUM_ROWS, MODIFIED_COUNTER FROM INFORMATION_SCHEMA.INNODB_SYS_TABLESTATS WHERE NAME = 'test/t1';
+
+DROP TABLE t1;
+
+set global innodb_stats_auto_recalc=default;

@@ -67,8 +67,13 @@ by background statistics gathering. */
 static recalc_pool_t		recalc_pool;
 /** Whether the global data structures have been initialized */
 static bool			stats_initialised;
+/** Whether shutdown has started and stats workers must stop scheduling work. */
+static bool                     stats_shutdown_in_progress;
 
 static THD *dict_stats_thd;
+static THD *dict_stats_flush_thd;
+static tpool::timer* dict_stats_timer;
+static tpool::timer* dict_stats_flush_timer;
 
 void reset_thd(MYSQL_THD thd);
 /*****************************************************************//**
@@ -91,8 +96,14 @@ static void dict_stats_recalc_pool_deinit()
 	recalc_pool_t recalc_empty_pool;
 	recalc_pool.swap(recalc_empty_pool);
 
-	if (dict_stats_thd)
+	if (dict_stats_thd) {
 		destroy_background_thd(dict_stats_thd);
+		dict_stats_thd= nullptr;
+	}
+	if (dict_stats_flush_thd) {
+		destroy_background_thd(dict_stats_flush_thd);
+		dict_stats_flush_thd= nullptr;
+	}
 }
 
 /*****************************************************************//**
@@ -145,12 +156,25 @@ void dict_stats_update_if_needed(dict_table_t *table, trx_t &trx) noexcept
 		return;
 	}
 
-	ulonglong	counter = table->stat_modified_counter++;
-	ulonglong	n_rows = dict_table_get_n_rows(table);
+	/* Cumulative counter for observability (I_S reporting). */
+	table->stat_modified_counter.fetch_add(1);
+
+	/* Heuristic countdown. The hot path stays off stats_mutex and avoids
+	reading stat_n_rows. A lost decrement (two threads racing on the same
+	cache line without the atomic op) would only delay recalc by one
+	event, so memory_order_relaxed is sufficient. */
+	if (UNIV_LIKELY(table->stat_reanalysis_counter.fetch_sub(1) > 0)) {
+		return;
+	}
+
+	/* Counter hit 0 or went negative: schedule/perform recalc and
+	re-arm the countdown. If several threads race here before the
+	re-arm completes they will all fall through; dict_stats_recalc_pool_add
+	deduplicates, and dict_stats_update_transient takes stats_mutex. */
 
 	if (table->stats_is_persistent(stat)) {
 		if (table->stats_is_auto_recalc(stat)
-		    && counter > n_rows / 10 && !table->name.is_temporary()) {
+		    && !table->name.is_temporary()) {
 #ifdef WITH_WSREP
 			/* Do not add table to background
 			statistic calculation if this thread is not a
@@ -176,25 +200,26 @@ void dict_stats_update_if_needed(dict_table_t *table, trx_t &trx) noexcept
 #endif /* WITH_WSREP */
 
 			dict_stats_recalc_pool_add(table->id);
-			table->stat_modified_counter = 0;
+
+			/* Re-arm the countdown so concurrent DMLs don't
+			keep entering this slow path while the background
+			recalc is queued. The final, authoritative reset
+			with the freshly-computed n_rows happens at the
+			end of dict_stats_update_persistent(). */
+			table->stats_mutex_lock();
+			const ulonglong n_rows
+				= dict_table_get_n_rows(table);
+			table->stat_reanalysis_counter.store(
+				static_cast<int64_t>(
+					std::max<ulonglong>(1, n_rows / 10)));
+			table->stats_mutex_unlock();
 		}
 		return;
 	}
 
-	/* Calculate new statistics if 1 / 16 of table has been modified
-	since the last time a statistics batch was run.
-	We calculate statistics at most every 16th round, since we may have
-	a counter table which is very small and updated very often. */
-	ulonglong threshold = 16 + n_rows / 16; /* 6.25% */
-
-	if (srv_stats_modified_counter) {
-		threshold = std::min(srv_stats_modified_counter, threshold);
-	}
-
-	if (counter > threshold) {
-		/* this will reset table->stat_modified_counter to 0 */
-		dict_stats_update_transient(&trx, table);
-	}
+	/* Transient stats path. dict_stats_update_transient() re-arms
+	stat_reanalysis_counter under stats_mutex after writing new stats. */
+	dict_stats_update_transient(&trx, table);
 }
 
 /** Delete a table from the auto recalc pool, and ensure that
@@ -253,6 +278,7 @@ void dict_stats_init()
   mysql_mutex_init(recalc_pool_mutex_key, &recalc_pool_mutex, nullptr);
   pthread_cond_init(&recalc_pool_cond, nullptr);
   stats_initialised= true;
+  stats_shutdown_in_progress= false;
 }
 
 /*****************************************************************//**
@@ -267,6 +293,14 @@ void dict_stats_deinit()
 	ut_ad(!srv_read_only_mode);
 	ut_ad(!recv_sys.rpo);
 
+	if (dict_stats_timer) {
+		delete dict_stats_timer;
+		dict_stats_timer= nullptr;
+	}
+	if (dict_stats_flush_timer) {
+		delete dict_stats_flush_timer;
+		dict_stats_flush_timer= nullptr;
+	}
 	stats_initialised = false;
 
 	dict_stats_recalc_pool_deinit();
@@ -283,6 +317,8 @@ static bool dict_stats_process_entry_from_recalc_pool(THD *thd)
 {
   ut_ad(!srv_read_only_mode);
   ut_ad(!recv_sys.rpo);
+  if (UNIV_UNLIKELY(stats_shutdown_in_progress))
+    return false;
   table_id_t table_id;
   mysql_mutex_lock(&recalc_pool_mutex);
 next_table_id_with_mutex:
@@ -376,9 +412,16 @@ static bool is_recalc_pool_empty()
   return empty;
 }
 
-static tpool::timer* dict_stats_timer;
+/** Period at which stat_reanalysis_counter values are flushed to
+mysql.innodb_table_stats. Only tables whose counter has drifted by at
+least STATS_REANALYSIS_FLUSH_DRIFT events are written, so the timer is a
+ceiling on crash-loss latency — not a per-tick I/O cost. */
+static constexpr int STATS_REANALYSIS_FLUSH_INTERVAL_MS= 60000;
+
 static void dict_stats_func(void*)
 {
+  if (UNIV_UNLIKELY(stats_shutdown_in_progress))
+    return;
   if (!dict_stats_thd)
     dict_stats_thd= innobase_create_background_thd("InnoDB statistics");
   set_current_thd(dict_stats_thd);
@@ -387,8 +430,26 @@ static void dict_stats_func(void*)
 
   reset_thd(dict_stats_thd);
   set_current_thd(nullptr);
-  if (!is_recalc_pool_empty())
+  if (!stats_shutdown_in_progress && !is_recalc_pool_empty())
     dict_stats_schedule(MIN_RECALC_INTERVAL * 1000);
+}
+
+static void dict_stats_flush_func(void*)
+{
+  if (UNIV_UNLIKELY(stats_shutdown_in_progress))
+    return;
+  /* A dedicated THD so this timer cannot race with dict_stats_func on
+  the shared dict_stats_thd when both timers are scheduled on separate
+  worker threads. */
+  if (!dict_stats_flush_thd)
+    dict_stats_flush_thd=
+      innobase_create_background_thd("InnoDB statistics flush");
+  set_current_thd(dict_stats_flush_thd);
+
+  dict_stats_flush_reanalysis_counters(false);
+
+  reset_thd(dict_stats_flush_thd);
+  set_current_thd(nullptr);
 }
 
 
@@ -396,12 +457,17 @@ void dict_stats_start()
 {
   DBUG_ASSERT(!dict_stats_timer);
   dict_stats_timer= srv_thread_pool->create_timer(dict_stats_func);
+  DBUG_ASSERT(!dict_stats_flush_timer);
+  dict_stats_flush_timer=
+    srv_thread_pool->create_timer(dict_stats_flush_func);
+  dict_stats_flush_timer->set_time(STATS_REANALYSIS_FLUSH_INTERVAL_MS,
+                                   STATS_REANALYSIS_FLUSH_INTERVAL_MS);
 }
 
 
 static void dict_stats_schedule(int ms)
 {
-  if(dict_stats_timer)
+  if(dict_stats_timer && !stats_shutdown_in_progress)
     dict_stats_timer->set_time(ms,0);
 }
 
@@ -413,6 +479,27 @@ void dict_stats_schedule_now()
 /** Shut down the dict_stats_thread. */
 void dict_stats_shutdown()
 {
-  delete dict_stats_timer;
-  dict_stats_timer= 0;
+  stats_shutdown_in_progress= true;
+  /* Final, authoritative flush of reanalysis counters. Timers are
+  quiesced first so no callback will schedule new work. The timer
+  objects themselves are destroyed later from dict_stats_deinit(),
+  after srv_shutdown_threads() has drained worker activity.
+
+  dict_stats_shutdown() is reached via plugin_deinitialize() ->
+  ha_finalize_handlerton() -> innobase_end() during both normal and
+  abort paths, at which point the SQL plugin subsystem is itself
+  being torn down. Calling innobase_create_background_thd() here
+  crashes in plugin_thdvar_init() / intern_plugin_lock() because
+  other plugins may already be unloaded. Only flush if the
+  dict_stats_flush_thd was successfully created earlier (meaning the
+  periodic timer fired at least once under a live plugin subsystem).
+  A skipped final flush loses at most one flush interval's worth of
+  drift progress, which is bounded by STATS_REANALYSIS_FLUSH_DRIFT
+  per table and is acceptable for a heuristic counter. */
+  if (!stats_initialised || !dict_stats_flush_thd)
+    return;
+  set_current_thd(dict_stats_flush_thd);
+  dict_stats_flush_reanalysis_counters(true);
+  reset_thd(dict_stats_flush_thd);
+  set_current_thd(nullptr);
 }

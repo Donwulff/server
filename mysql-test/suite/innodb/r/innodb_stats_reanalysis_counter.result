@@ -1,0 +1,16 @@
+CREATE TABLE mdev24303 (i int PRIMARY KEY) ENGINE=InnoDB
+STATS_PERSISTENT=1, STATS_AUTO_RECALC=1;
+INSERT INTO mdev24303 SELECT seq FROM seq_1_to_100;
+SET STATEMENT use_stat_tables=never FOR
+ANALYZE TABLE mdev24303;
+Table	Op	Msg_type	Msg_text
+test.mdev24303	analyze	status	OK
+UPDATE mysql.innodb_table_stats SET reanalysis_counter = 0
+WHERE database_name = DATABASE() AND table_name = 'mdev24303';
+INSERT INTO mdev24303 VALUES (101);
+SELECT n_rows = 101 AS recalced, reanalysis_counter > 0 AS rearmed
+FROM mysql.innodb_table_stats
+WHERE database_name = DATABASE() AND table_name = 'mdev24303';
+recalced	rearmed
+1	1
+DROP TABLE mdev24303;

@@ -14409,6 +14409,10 @@ static void stats_deinit(dict_table_t *t) noexcept
   MEM_UNDEFINED(&t->stat_sum_of_other_index_sizes,
                 sizeof t->stat_sum_of_other_index_sizes);
   MEM_UNDEFINED(&t->stat_modified_counter, sizeof t->stat_modified_counter);
+  MEM_UNDEFINED(&t->stat_reanalysis_counter,
+                sizeof t->stat_reanalysis_counter);
+  MEM_UNDEFINED(&t->stat_reanalysis_counter_persisted,
+                sizeof t->stat_reanalysis_counter_persisted);
 #ifdef HAVE_valgrind
   for (dict_index_t *i= dict_table_get_first_index(t); i;
        i= dict_table_get_next_index(i))
