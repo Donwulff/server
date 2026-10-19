@@ -110,3 +110,56 @@ release was built or runtime-tested. Neither primary target has undergone a
 full-server MTR run, sanitizer run, production workload benchmark, or
 production packaging/deployment qualification in this maintenance pass.
 No upstream submission or remote push was performed.
+
+## Validation, 2026-10-19
+
+The stats-zero-window topic was rebased onto main `327437ade1d` (13.2.0).
+The conflict resolution preserves upstream's `IndexStats` type and
+`stats_method` argument, along with the existing visibility fix and debug
+sync test. Tested topic tip: `982715e710d`.
+
+Integration was rebuilt from the five current topic tips. Its upgrade
+regression and maintenance documentation had been dropped by the older
+sync script and were restored. Tested integration tip: `dc6345dae2f`.
+The old integration is retained as
+`backup/integration-before-sync-repair-20261019`. The original September
+maintenance tip is retained as
+`backup/integration-with-maintenance-20260927`, keeping the recovery commits
+and pinned source series reachable after garbage collection.
+
+The 10.11 port remains based on `mariadb-10.11.19`; no server-code changes
+were needed there. Tested maintenance tip: `0c344ad050c`. The reviewed HEAD
+manifest and workflow instructions are shared between the maintained
+branches, while September's source-series provenance is retained.
+
+| Validation | Result |
+| --- | --- |
+| Stats topic: Debug minbuild and resolveip | Passed |
+| Stats topic: visibility + three stats_method variants | 4 passed |
+| Integration: Debug minbuild and upgrade/dump test plugins | Passed |
+| Integration: five topics, upgrade, dump and stats_method variants | 12 passed |
+| 10.11: installed sync script, release check and backport audit | Passed |
+| 10.11: Debug build, five topics, upgrade and dump tests | 10 passed |
+| Sync workflow tests in isolated Git repos, build/MTR stubbed | 10 passed |
+| Bash syntax and ShellCheck | Passed |
+
+The workflow tests cover preserving integration-only commits across
+repeated rebuilds, dirty worktrees, failed fetches and merges, changed HEAD
+patches, explicit release updates, test-gated publication, atomic leased
+pushes, concurrent remote changes, and invalid publishing combinations.
+The actual 10.11 script invocation completed with exit status zero:
+
+```sh
+~/mariadb-notes/sync-fork.sh --targets=10.11 --no-fetch --no-push --jobs=6
+```
+
+Durable logs and the pre-edit sync script are under
+`/home/jsantala/mariadb-main/.claude/sync-repair-20261019/`.
+The final script log directory is
+`.claude/sync-logs/20261019-071056-124338/`.
+
+GitHub was checked with `git ls-remote --heads origin`. `main` matches the
+local upstream reference. Neither `integration` nor `maint/10.11` exists on
+the remote; three older topic branches exist and the two WKB topics are
+absent. No remote pushes were made in this pass. These are focused checks,
+not a full MTR run or certification of intermediate MariaDB releases.
