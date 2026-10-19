@@ -147,3 +147,57 @@ target revisions. Four of the five topics apply directly to 11.4.13,
 11.8.9 and 12.3.3. MDEV-24303 needs resolution on all three. These are
 textual checks of each topic independently, not build or test certification
 of intermediate releases. Only HEAD and 10.11 are maintained here.
+
+## Automated maintenance (2026-10-19)
+
+`~/mariadb-notes/sync-fork.sh` now validates both HEAD and 10.11 by default.
+The default remote push still updates only `origin/main`. Examples:
+
+```sh
+~/mariadb-notes/sync-fork.sh --no-push
+~/mariadb-notes/sync-fork.sh --targets=10.11 --no-push
+~/mariadb-notes/sync-fork.sh --targets=head --no-push
+~/mariadb-notes/sync-fork.sh --maint-release=mariadb-10.11.NEXT --no-push
+# Publish both combined branches and all five topics after validation:
+~/mariadb-notes/sync-fork.sh --push-fixes --rewrite-fixes
+```
+
+Replace `NEXT` with a numeric release suffix. The maintenance target stays
+on its current release unless `--maint-release` is supplied. It is never
+rebased onto `main` or the unreleased upstream `10.11` branch. The script
+prints the current base and newest fetched release. `--no-fetch` validates
+against the existing local upstream refs without accessing upstream.
+
+Integration rebuilds retain the worktree and its build cache, save a
+`backup/integration-*` ref, and replay integration-only commits after the
+current topics. The upgrade regression and original maintenance notes are
+explicit recovery commits because the previous script had dropped them.
+An existing merge/rebase or dirty worktree causes a failure, not an abort
+of someone else's work. Concurrent script runs are rejected with `flock`.
+
+`reviewed-heads.txt` records the HEAD commits reviewed against the 10.11
+adaptations and fingerprints of their added/deleted lines. Rebase-only
+context changes do not invalidate this record. Changed patches fail the
+backport audit and prevent publishing; review the differences, cherry-pick
+new fixes with `-x`, and run both versions' regressions before refreshing
+the manifest. This is a review gate, not an automatic cross-version port.
+The original `source-series.txt` remains the September provenance record.
+
+Both combined branches run the five topics' regressions, the dedicated
+schema upgrade test, and dump tests with their required plugins built.
+10.11 also runs `main.mysql_upgrade`. Neither intermediate versions nor a
+full MTR run are implied by the default focused selection.
+
+`--push-fixes` publishes `integration`, `maint/10.11`, and all five topic
+branches atomically only after both builds, tests and the backport audit
+pass. It requires both targets, integration and tests. Rewritten histories
+additionally require `--rewrite-fixes`, which uses exact remote tips read
+before the run as force-with-lease expectations. Newer remote changes reject
+the push. Neither option deletes remote branches or publishes backup refs.
+
+The 2026-10-19 review found only upstream context/API changes since the
+September backport: `IndexStats` and the `stats_method` parameter on HEAD,
+renamed statistics schema types, and surrounding include changes. The
+10.11 adaptations keep their original APIs; no corresponding server-code
+change is needed there. The HEAD stats conflict was resolved retaining the
+new API and the debug-sync regression.

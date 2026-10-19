@@ -1,0 +1,8 @@
+# Reviewed 2026-10-19 against maint/10.11 at 22c15953d2f.
+# topic HEAD-commit context-free-stable-patch-id
+# Update only after reviewing/backporting changed HEAD code and testing both versions.
+stats-zero-window 982715e710dc34ba8f3431286941aecf96610bfa 311c89ea7085594821ef529e5cfa8c0193c1ac07
+mdev-26123 ef3c4ce3841674f50453f8dda2604d472f62fb20 48149d477d20d6a1c8102d18a4c1c910b6011e0c
+spatial-interiorring-wkb 25b4ef798a71fc21473959fb56a07561fc207cbf 4f6e5030f00031aaa2abba1821de3a5121eff5aa
+mdev-38372-defense 5a1c27ccbc40194f839bb251e1e5b998d2aa2578 b27a592d64a78128f2520abcb3758cc9cdc8a19b
+mdev-24303 f1d6fa4cf02bdb3f7cf23ba22d32a46484c8a9a6 3cf0fc7284429e90d7066dba58be2836b3068d8e
