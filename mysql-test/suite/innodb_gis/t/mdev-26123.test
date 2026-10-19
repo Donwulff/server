@@ -1,0 +1,47 @@
+--source include/have_innodb.inc
+
+--echo #
+--echo # MDEV-26123 Spatial index access in an already-started transaction
+--echo # fails with ER_READ_ONLY_TRANSACTION (1207).
+--echo #
+--echo # Root cause: ha_innobase::index_read() had a guard (MDEV-25594) that
+--echo # returned HA_ERR_READ_ONLY_TRANSACTION when a spatial index was
+--echo # accessed while the trx was already active with will_lock=false.
+--echo # This state occurs in autocommit SELECTs when a non-spatial index
+--echo # access starts the trx first (e.g. rowid filter, subquery).
+--echo #
+--echo # MDEV-25594 added the guard to keep an autocommit non-locking trx
+--echo # from transitioning to locking mid-stream (which confused the
+--echo # deadlock checker).  For plain SELECTs (LOCK_NONE), no record or
+--echo # predicate lock is ever taken, so flipping will_lock=true is safe:
+--echo # lock_rec_create() is never reached.
+--echo #
+
+--echo #
+--echo # Multi-table query where the executor reads a non-spatial index
+--echo # for one table before using the spatial index of another.  The
+--echo # EXPLAIN output is part of the regression: n must use PRIMARY before
+--echo # s uses the R-tree key g_idx.  The row estimate is incidental and can
+--echo # change with persistent statistics details.
+--echo #
+CREATE TABLE t_ns (id INT PRIMARY KEY, val INT) ENGINE=InnoDB;
+CREATE TABLE t_sp (id INT PRIMARY KEY, g POINT NOT NULL, SPATIAL KEY g_idx(g)) ENGINE=InnoDB;
+INSERT INTO t_ns VALUES (1,10),(2,20),(3,30);
+INSERT INTO t_sp VALUES (1, ST_PointFromText('POINT(1 2)')),
+                        (2, ST_PointFromText('POINT(4 5)')),
+                        (3, ST_PointFromText('POINT(10 10)'));
+
+--replace_column 9 ROWS
+EXPLAIN SELECT ST_AsText(s.g) FROM t_ns n FORCE INDEX(PRIMARY)
+  STRAIGHT_JOIN t_sp s FORCE INDEX(g_idx) ON n.id = s.id
+  WHERE n.id > 0
+    AND MBRIntersects(s.g, ST_GeomFromText('Polygon((0 0,3 0,3 3,0 3,0 0))'))
+  ORDER BY n.id;
+
+SELECT ST_AsText(s.g) FROM t_ns n FORCE INDEX(PRIMARY)
+  STRAIGHT_JOIN t_sp s FORCE INDEX(g_idx) ON n.id = s.id
+  WHERE n.id > 0
+    AND MBRIntersects(s.g, ST_GeomFromText('Polygon((0 0,3 0,3 3,0 3,0 0))'))
+  ORDER BY n.id;
+
+DROP TABLE t_ns, t_sp;
